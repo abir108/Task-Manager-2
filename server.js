@@ -19,7 +19,7 @@ if (!sessionSecret) {
   }
 }
 
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 app.use(session({
   secret: sessionSecret,
   resave: false,
@@ -378,6 +378,38 @@ app.patch("/api/statuses/:id", requireAdmin, async (req, res) => {
 app.delete("/api/statuses/:id", requireAdmin, async (req, res) => {
   if (store.statuses.length <= 1) return res.status(400).json({ error: "At least one status must remain" });
   store.statuses = store.statuses.filter(s => s.id !== req.params.id);
+  await save();
+  res.json({ ok: true });
+});
+
+/* ---------- Backup / restore (admin only) ---------- */
+app.get("/api/backup", requireAdmin, (req, res) => {
+  const filename = `workflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(JSON.stringify(store, null, 2));
+});
+
+app.post("/api/restore", requireAdmin, async (req, res) => {
+  const incoming = req.body;
+  const requiredArrays = ["members", "projects", "groups", "tasks", "statuses"];
+  const isValid = incoming && typeof incoming === "object" &&
+    requiredArrays.every(key => Array.isArray(incoming[key]));
+  if (!isValid) {
+    return res.status(400).json({ error: "That file doesn't look like a valid WorkFlow backup" });
+  }
+  if (incoming.statuses.length === 0) {
+    return res.status(400).json({ error: "Backup must include at least one status" });
+  }
+  if (!incoming.members.some(m => m.role === "admin")) {
+    return res.status(400).json({ error: "Backup must include at least one admin account" });
+  }
+
+  store.members = incoming.members;
+  store.projects = incoming.projects;
+  store.groups = incoming.groups;
+  store.tasks = incoming.tasks;
+  store.statuses = incoming.statuses;
   await save();
   res.json({ ok: true });
 });

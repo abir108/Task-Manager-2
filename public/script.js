@@ -365,6 +365,37 @@ async function renderTeam() {
   });
 }
 
+/* ---------- Backup / restore (admin only) ---------- */
+document.getElementById("btn-download-backup").addEventListener("click", () => {
+  window.location.href = "/api/backup";
+});
+
+document.getElementById("input-restore-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+
+  const statusEl = document.getElementById("backup-status");
+  statusEl.textContent = "";
+  statusEl.className = "backup-status";
+
+  if (!confirm(`Restore from "${file.name}"? This replaces ALL current data (projects, tasks, and team logins) with what's in this backup. This can't be undone.`)) {
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    await api("POST", "/api/restore", data);
+    statusEl.textContent = "Backup restored successfully.";
+    statusEl.classList.add("success");
+    await renderTeam();
+  } catch (err) {
+    statusEl.textContent = "Restore failed: " + err.message;
+    statusEl.classList.add("error");
+  }
+});
+
 /* ===========================================================
    BOARD (working process per project)
 =========================================================== */

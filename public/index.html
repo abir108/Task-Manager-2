@@ -124,6 +124,19 @@
 
       <div id="team-grid" class="team-grid"></div>
       <p id="team-empty" class="empty-hint">No teammates yet. Add someone to give them a login.</p>
+
+      <div class="panel backup-panel">
+        <h2>Backup &amp; Restore</h2>
+        <p class="subtitle">Download a full backup before updating the app, or restore one if data was lost.</p>
+        <div class="backup-actions">
+          <button class="btn btn-ghost" id="btn-download-backup">Download Backup</button>
+          <label class="btn btn-ghost file-btn">
+            Restore from Backup
+            <input type="file" id="input-restore-file" accept="application/json" hidden>
+          </label>
+        </div>
+        <p class="backup-status" id="backup-status"></p>
+      </div>
     </section>
 
     <!-- ===== BOARD VIEW (single project working process) ===== -->
