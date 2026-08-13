@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WorkFlow — Project Dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div class="login-screen" id="login-screen">
+  <form class="login-card" id="login-form">
+    <div class="brand login-brand">
+      <span class="brand-mark">W</span>
+      <span class="brand-name">WorkFlow</span>
+    </div>
+    <p class="subtitle">Sign in with your name and PIN</p>
+    <label>Name
+      <input type="text" id="login-name" autocomplete="username" placeholder="e.g. Sarah Khan" required>
+    </label>
+    <label>PIN
+      <input type="password" id="login-pin" autocomplete="current-password" inputmode="numeric" maxlength="6" placeholder="4-6 digit PIN" required>
+    </label>
+    <p class="login-error" id="login-error"></p>
+    <button class="btn btn-primary login-submit" type="submit">Log in</button>
+  </form>
+</div>
+
+<div class="app" id="app-shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">W</span>
+      <span class="brand-name">WorkFlow</span>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-btn active" data-view="dashboard">
+        <span class="icon">▦</span> Dashboard
+      </button>
+      <button class="nav-btn" data-view="projects">
+        <span class="icon">▤</span> Projects
+      </button>
+      <button class="nav-btn" data-view="team" id="nav-team">
+        <span class="icon">◔</span> Team
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-card">
+        <div class="user-name" id="current-user-name">—</div>
+        <div class="user-role" id="current-user-role">—</div>
+      </div>
+      <button class="btn btn-ghost logout-btn" id="btn-logout">Log out</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- ===== DASHBOARD VIEW ===== -->
+    <section id="view-dashboard" class="view active">
+      <header class="view-header">
+        <div>
+          <h1>Dashboard</h1>
+          <p class="subtitle">Overview of all your projects and progress</p>
+        </div>
+      </header>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-projects">0</div>
+          <div class="stat-label">Projects</div>
+        </div>
+        <div class="stat-card" id="stat-members-card">
+          <div class="stat-value" id="stat-members">0</div>
+          <div class="stat-label">Team members</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-tasks">0</div>
+          <div class="stat-label">Total tasks</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-done">0%</div>
+          <div class="stat-label">Completed</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Project progress</h2>
+        <div id="progress-list" class="progress-list">
+          <p class="empty-hint">No projects yet.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PROJECTS VIEW ===== -->
+    <section id="view-projects" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Projects</h1>
+          <p class="subtitle" id="projects-subtitle">Create and manage your projects</p>
+        </div>
+        <button class="btn btn-primary admin-only" id="btn-new-project">+ New Project</button>
+      </header>
+
+      <div id="projects-grid" class="projects-grid">
+        <!-- project cards injected here -->
+      </div>
+      <p id="projects-empty" class="empty-hint">No projects yet.</p>
+    </section>
+
+    <!-- ===== TEAM VIEW (admin only) ===== -->
+    <section id="view-team" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Team</h1>
+          <p class="subtitle">Create logins for your team — each member signs in with their name and PIN</p>
+        </div>
+        <button class="btn btn-primary" id="btn-new-member">+ Add Teammate</button>
+      </header>
+
+      <div id="team-grid" class="team-grid"></div>
+      <p id="team-empty" class="empty-hint">No teammates yet. Add someone to give them a login.</p>
+    </section>
+
+    <!-- ===== BOARD VIEW (single project working process) ===== -->
+    <section id="view-board" class="view">
+      <header class="view-header">
+        <div>
+          <button class="btn btn-back" id="btn-back-projects">&larr; Back to Projects</button>
+          <h1 id="board-title" title="Click to rename">Project</h1>
+          <p class="subtitle" id="board-subtitle"></p>
+        </div>
+      </header>
+
+      <div id="board-groups"></div>
+
+      <button class="btn btn-ghost btn-add-group admin-only" id="btn-add-group">+ Add new group</button>
+    </section>
+
+  </main>
+</div>
+
+<!-- ===== MODALS ===== -->
+
+<div class="modal-overlay" id="modal-project">
+  <div class="modal">
+    <h2>New Project</h2>
+    <label>Project name
+      <input type="text" id="input-project-name" placeholder="e.g. Website Redesign">
+    </label>
+    <label>Description
+      <textarea id="input-project-desc" placeholder="What is this project about?"></textarea>
+    </label>
+    <label>Deadline
+      <input type="date" id="input-project-deadline">
+    </label>
+    <p class="modal-error" id="project-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close="modal-project">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-project">Create Project</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-member">
+  <div class="modal">
+    <h2 id="member-modal-title">Add Teammate</h2>
+    <label>Name
+      <input type="text" id="input-member-name" placeholder="e.g. Sarah Khan">
+    </label>
+    <label>PIN <span class="hint-inline">(4-6 digits)</span>
+      <input type="text" id="input-member-pin" inputmode="numeric" maxlength="6" placeholder="e.g. 4821">
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" id="input-member-admin">
+      Grant admin access
+    </label>
+    <p class="modal-error" id="member-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close="modal-member">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-member">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-assign">
+  <div class="modal">
+    <h2>Assign Teammates</h2>
+    <p class="subtitle" id="assign-project-name"></p>
+    <div id="assign-list" class="assign-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-close="modal-assign">Done</button>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
