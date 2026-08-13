@@ -13,12 +13,25 @@ const DEFAULT_STATUSES = [
   { id: "done",        label: "Done", color: "#00c875" }
 ];
 
+const DEFAULT_CATEGORY_LABELS = {
+  running: "Running Projects",
+  query: "Sent to Query",
+  completed: "Completed Projects"
+};
+
 function uid() {
   return crypto.randomUUID();
 }
 
 function emptyStore() {
-  return { members: [], projects: [], groups: [], tasks: [], statuses: DEFAULT_STATUSES.map(s => ({ ...s })) };
+  return {
+    members: [],
+    projects: [],
+    groups: [],
+    tasks: [],
+    statuses: DEFAULT_STATUSES.map(s => ({ ...s })),
+    categoryLabels: { ...DEFAULT_CATEGORY_LABELS }
+  };
 }
 
 function load() {
@@ -45,6 +58,27 @@ function load() {
   if (!store.members) store.members = [];
   if (!store.projects) store.projects = [];
   if (!store.tasks) store.tasks = [];
+  if (!store.categoryLabels) store.categoryLabels = { ...DEFAULT_CATEGORY_LABELS };
+  ["running", "query", "completed"].forEach(key => {
+    if (!store.categoryLabels[key]) store.categoryLabels[key] = DEFAULT_CATEGORY_LABELS[key];
+  });
+
+  let changed = false;
+  store.projects.forEach(p => {
+    if (!p.category || !["running", "query", "completed"].includes(p.category)) {
+      p.category = "running";
+      changed = true;
+    }
+  });
+  store.tasks.forEach(t => {
+    if (!Array.isArray(t.assigneeIds)) {
+      t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];
+      changed = true;
+    }
+  });
+  if (changed) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
+  }
   return store;
 }
 
@@ -60,4 +94,21 @@ function save() {
   return writeChain;
 }
 
-module.exports = { store, save, uid };
+/* Recompute a project's category based on its tasks' completion state.
+   All tasks (including subitems) done -> "completed".
+   If it was auto-completed but no longer all-done -> back to "running".
+   Manual "query" state is left alone unless the project just became fully done. */
+function recomputeProjectCategory(projectId) {
+  const project = store.projects.find(p => p.id === projectId);
+  if (!project) return;
+  const tasks = store.tasks.filter(t => t.projectId === projectId);
+  if (tasks.length === 0) return;
+  const allDone = tasks.every(t => t.status === "done");
+  if (allDone) {
+    project.category = "completed";
+  } else if (project.category === "completed") {
+    project.category = "running";
+  }
+}
+
+module.exports = { store, save, uid, recomputeProjectCategory, DEFAULT_CATEGORY_LABELS };

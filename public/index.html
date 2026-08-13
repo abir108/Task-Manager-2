@@ -46,7 +46,12 @@
       <button class="nav-btn" data-view="team" id="nav-team">
         <span class="icon">◔</span> Team
       </button>
+      <button class="nav-btn admin-only" data-view="backup" id="nav-backup">
+        <span class="icon">⇅</span> Backup
+      </button>
     </nav>
+
+    <div class="sidebar-tree" id="sidebar-tree"></div>
 
     <div class="sidebar-footer">
       <div class="user-card">
@@ -124,10 +129,18 @@
 
       <div id="team-grid" class="team-grid"></div>
       <p id="team-empty" class="empty-hint">No teammates yet. Add someone to give them a login.</p>
+    </section>
+
+    <!-- ===== BACKUP VIEW (admin only) ===== -->
+    <section id="view-backup" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Backup &amp; Restore</h1>
+          <p class="subtitle">Download a full backup before updating the app, or restore one if data was lost.</p>
+        </div>
+      </header>
 
       <div class="panel backup-panel">
-        <h2>Backup &amp; Restore</h2>
-        <p class="subtitle">Download a full backup before updating the app, or restore one if data was lost.</p>
         <div class="backup-actions">
           <button class="btn btn-ghost" id="btn-download-backup">Download Backup</button>
           <label class="btn btn-ghost file-btn">
@@ -210,6 +223,8 @@
     </div>
   </div>
 </div>
+
+<div class="toast-stack" id="toast-stack"></div>
 
 <script src="script.js"></script>
 </body>

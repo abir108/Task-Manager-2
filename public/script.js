@@ -11,8 +11,12 @@ let members = [];    // full roster with roles, admin only
 let projects = [];
 let groups = [];
 let tasks = [];
+let categoryLabels = { running: "Running Projects", query: "Sent to Query", completed: "Completed Projects" };
 let currentBoardProjectId = null;
-const collapsedTasks = new Set();
+const expandedTasks = new Set();
+const collapsedGroups = new Set();
+const collapsedCategories = new Set();
+const CATEGORY_KEYS = ["running", "query", "completed"];
 
 function isAdmin() { return !!me && me.role === "admin"; }
 
@@ -28,6 +32,19 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+function showToast(message) {
+  const stack = document.getElementById("toast-stack");
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  stack.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 200);
+  }, 2600);
 }
 
 /* ---------- API helper ---------- */
@@ -94,7 +111,9 @@ async function afterLogin() {
   showApp();
   statuses = await api("GET", "/api/statuses");
   team = await api("GET", "/api/team-lite");
+  categoryLabels = await api("GET", "/api/category-labels");
   await showView("dashboard");
+  renderSidebarTree();
 }
 
 async function tryResume() {
@@ -114,7 +133,7 @@ navButtons.forEach(btn => {
 });
 
 async function showView(name) {
-  if (name === "team" && !isAdmin()) name = "dashboard";
+  if ((name === "team" || name === "backup") && !isAdmin()) name = "dashboard";
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById("view-" + name).classList.add("active");
   navButtons.forEach(b => b.classList.toggle("active", b.dataset.view === name));
@@ -195,8 +214,12 @@ async function renderProjects() {
       .map(m => `<div class="avatar" style="background:${colorFor(m.id)}" title="${escapeHtml(m.name)}">${initialsOf(m.name)}</div>`)
       .join("");
 
+    const category = project.category || "running";
     card.innerHTML = `
-      <h3>${escapeHtml(project.name)}</h3>
+      <div class="meta-row">
+        <h3 style="margin:0">${escapeHtml(project.name)}</h3>
+        <span class="category-badge ${category}">${escapeHtml(categoryLabels[category] || category)}</span>
+      </div>
       <div class="desc">${escapeHtml(project.desc || "No description")}</div>
       <div class="meta-row">
         <span>${projTasks.length} task${projTasks.length === 1 ? "" : "s"} · ${pct}% done</span>
@@ -204,6 +227,9 @@ async function renderProjects() {
       </div>
       <div class="meta-row">
         <div class="avatar-stack">${avatars || '<span style="color:var(--text-muted)">No teammates yet</span>'}</div>
+        ${isAdmin() ? `<select class="category-select" data-action="category">
+          ${CATEGORY_KEYS.map(k => `<option value="${k}" ${k === category ? "selected" : ""}>${escapeHtml(categoryLabels[k] || k)}</option>`).join("")}
+        </select>` : ""}
       </div>
       <div class="card-actions">
         <button data-action="board">Open board</button>
@@ -216,6 +242,14 @@ async function renderProjects() {
       openBoard(project.id);
     });
     if (isAdmin()) {
+      card.querySelector('[data-action="category"]').addEventListener("click", e => e.stopPropagation());
+      card.querySelector('[data-action="category"]').addEventListener("change", async (e) => {
+        try {
+          const updated = await api("PATCH", `/api/projects/${project.id}`, { category: e.target.value });
+          project.category = updated.category;
+          await renderProjects();
+        } catch (err) { alert(err.message); }
+      });
       card.querySelector('[data-action="assign"]').addEventListener("click", (e) => {
         e.stopPropagation();
         openAssignModal(project.id);
@@ -232,6 +266,92 @@ async function renderProjects() {
     card.addEventListener("click", () => openBoard(project.id));
 
     grid.appendChild(card);
+  });
+
+  renderSidebarTree();
+}
+
+/* ---------- Sidebar project tree ---------- */
+function renderSidebarTree() {
+  const container = document.getElementById("sidebar-tree");
+  container.innerHTML = "";
+
+  CATEGORY_KEYS.forEach(key => {
+    const catProjects = projects.filter(p => (p.category || "running") === key);
+    const section = document.createElement("div");
+    section.className = "tree-category";
+
+    const head = document.createElement("div");
+    head.className = "tree-category-head";
+    head.addEventListener("click", () => {
+      if (collapsedCategories.has(key)) collapsedCategories.delete(key);
+      else collapsedCategories.add(key);
+      renderSidebarTree();
+    });
+
+    const chevron = document.createElement("span");
+    chevron.className = "tree-chevron" + (collapsedCategories.has(key) ? " collapsed" : "");
+    chevron.innerHTML = "&#9662;";
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "tree-category-name";
+    nameEl.textContent = categoryLabels[key] || key;
+    if (isAdmin()) {
+      nameEl.title = "Click to rename";
+      nameEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (nameEl.querySelector("input")) return;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = categoryLabels[key];
+        nameEl.textContent = "";
+        nameEl.appendChild(input);
+        input.focus();
+        input.select();
+        const commit = async () => {
+          const v = input.value.trim();
+          if (v && v !== categoryLabels[key]) {
+            try {
+              categoryLabels = await api("PATCH", "/api/category-labels", { [key]: v });
+            } catch (err) { alert(err.message); }
+          }
+          renderSidebarTree();
+        };
+        input.addEventListener("blur", commit);
+        input.addEventListener("keydown", ev => { if (ev.key === "Enter") input.blur(); });
+        input.addEventListener("click", ev => ev.stopPropagation());
+      });
+    }
+
+    const countEl = document.createElement("span");
+    countEl.className = "tree-count";
+    countEl.textContent = catProjects.length;
+
+    head.append(chevron, nameEl, countEl);
+    section.appendChild(head);
+
+    if (!collapsedCategories.has(key)) {
+      const list = document.createElement("div");
+      list.className = "tree-projects";
+      if (catProjects.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "tree-empty";
+        empty.textContent = "Empty";
+        list.appendChild(empty);
+      } else {
+        catProjects.forEach(p => {
+          const link = document.createElement("div");
+          link.className = "tree-project-link" + (p.id === currentBoardProjectId ? " active" : "");
+          link.textContent = p.name;
+          link.title = p.name;
+          link.addEventListener("click", () => openBoard(p.id));
+          list.appendChild(link);
+        });
+      }
+      section.appendChild(list);
+    }
+
+    container.appendChild(section);
   });
 }
 
@@ -389,7 +509,11 @@ document.getElementById("input-restore-file").addEventListener("change", async (
     await api("POST", "/api/restore", data);
     statusEl.textContent = "Backup restored successfully.";
     statusEl.classList.add("success");
-    await renderTeam();
+    statuses = await api("GET", "/api/statuses");
+    team = await api("GET", "/api/team-lite");
+    categoryLabels = await api("GET", "/api/category-labels");
+    projects = await api("GET", "/api/projects");
+    renderSidebarTree();
   } catch (err) {
     statusEl.textContent = "Restore failed: " + err.message;
     statusEl.classList.add("error");
@@ -416,18 +540,20 @@ async function loadAndRenderBoard() {
   }
   if (!project) { await showView("projects"); return; }
 
-  document.getElementById("board-title").textContent = project.name;
-  document.getElementById("board-subtitle").textContent = project.desc || "";
-
   try {
     groups = await api("GET", `/api/groups?projectId=${currentBoardProjectId}`);
     tasks = await api("GET", `/api/tasks?projectId=${currentBoardProjectId}`);
+    projects = await api("GET", "/api/projects");
+    project = projects.find(p => p.id === currentBoardProjectId) || project;
   } catch (err) {
     alert(err.message);
     await showView("projects");
     return;
   }
+  document.getElementById("board-title").textContent = project.name;
+  document.getElementById("board-subtitle").textContent = project.desc || "";
   renderBoard();
+  renderSidebarTree();
 }
 
 /* ---------- Editable project title (admin only) ---------- */
@@ -622,9 +748,18 @@ function buildGroupTable(group) {
   const bar = document.createElement("div");
   bar.className = "group-bar";
 
-  const chevron = document.createElement("span");
-  chevron.className = "group-chevron";
+  const isCollapsed = collapsedGroups.has(group.id);
+
+  const chevron = document.createElement("button");
+  chevron.className = "group-chevron" + (isCollapsed ? " collapsed" : "");
   chevron.innerHTML = "&#9662;";
+  chevron.title = "Expand/collapse group";
+  chevron.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (collapsedGroups.has(group.id)) collapsedGroups.delete(group.id);
+    else collapsedGroups.add(group.id);
+    renderBoard();
+  });
 
   const titleEl = document.createElement("span");
   titleEl.className = "group-title";
@@ -664,6 +799,34 @@ function buildGroupTable(group) {
   bar.append(chevron, titleEl, countEl);
 
   if (isAdmin()) {
+    const sendQueryBtn = document.createElement("button");
+    sendQueryBtn.className = "group-send-query";
+    sendQueryBtn.textContent = "Send Query";
+    sendQueryBtn.title = "Create a Send Query task and move this project to the Query category";
+    sendQueryBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await api("POST", `/api/groups/${group.id}/send-query`);
+        showToast("Query sent — project moved to " + (categoryLabels.query || "Sent to Query"));
+      } catch (err) { alert(err.message); }
+      await loadAndRenderBoard();
+    });
+    bar.appendChild(sendQueryBtn);
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "group-copy";
+    copyBtn.innerHTML = "&#10697;";
+    copyBtn.title = "Copy this group";
+    copyBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await api("POST", `/api/groups/${group.id}/duplicate`);
+        showToast(`"${group.name}" copied`);
+      } catch (err) { alert(err.message); }
+      await loadAndRenderBoard();
+    });
+    bar.appendChild(copyBtn);
+
     const delGroupBtn = document.createElement("button");
     delGroupBtn.className = "group-del";
     delGroupBtn.innerHTML = "&times;";
@@ -676,6 +839,9 @@ function buildGroupTable(group) {
     });
     bar.appendChild(delGroupBtn);
   }
+
+  wrap.appendChild(bar);
+  if (isCollapsed) return wrap;
 
   /* table */
   const table = document.createElement("table");
@@ -693,14 +859,14 @@ function buildGroupTable(group) {
   topTasks.forEach(task => {
     tbody.appendChild(buildTaskRow(task, project, groupTasks, false));
     const subitems = groupTasks.filter(t => t.parentId === task.id);
-    if (!collapsedTasks.has(task.id)) {
+    if (expandedTasks.has(task.id)) {
       subitems.forEach(sub => tbody.appendChild(buildTaskRow(sub, project, groupTasks, true)));
       if (isAdmin()) tbody.appendChild(buildAddSubitemRow(task, group));
     }
   });
 
   table.appendChild(tbody);
-  wrap.append(bar, table);
+  wrap.appendChild(table);
 
   if (isAdmin()) {
     const addRow = document.createElement("div");
@@ -739,27 +905,26 @@ function buildTaskRow(task, project, groupTasks, isSub) {
   tr.dataset.taskId = task.id;
   if (isSub) tr.classList.add("sub-row");
 
-  const member = team.find(m => m.id === task.assigneeId);
+  const assigneeIds = task.assigneeIds || [];
+  const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
   const statusDef = statuses.find(s => s.id === task.status) || statuses[0];
 
   const tdTask = document.createElement("td");
   tdTask.className = "cell-task";
 
   if (!isSub) {
-    const subCount = groupTasks.filter(t => t.parentId === task.id).length;
-    if (subCount > 0) {
-      const toggle = document.createElement("button");
-      toggle.className = "task-toggle";
-      toggle.innerHTML = collapsedTasks.has(task.id) ? "&#9656;" : "&#9662;";
-      toggle.title = "Expand/collapse subitems";
-      toggle.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (collapsedTasks.has(task.id)) collapsedTasks.delete(task.id);
-        else collapsedTasks.add(task.id);
-        renderBoard();
-      });
-      tdTask.appendChild(toggle);
-    }
+    const isExpanded = expandedTasks.has(task.id);
+    const toggle = document.createElement("button");
+    toggle.className = "task-toggle";
+    toggle.innerHTML = isExpanded ? "&#9662;" : "&#9656;";
+    toggle.title = "Expand/collapse subitems";
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (expandedTasks.has(task.id)) expandedTasks.delete(task.id);
+      else expandedTasks.add(task.id);
+      renderBoard();
+    });
+    tdTask.appendChild(toggle);
   }
 
   const titleSpan = document.createElement("span");
@@ -793,8 +958,12 @@ function buildTaskRow(task, project, groupTasks, isSub) {
   const tdOwner = document.createElement("td");
   const ownerCell = document.createElement("div");
   ownerCell.className = "owner-cell";
-  if (member) {
-    ownerCell.innerHTML = `<div class="avatar" style="background:${colorFor(member.id)}">${initialsOf(member.name)}</div><span>${escapeHtml(member.name)}</span>`;
+  if (assignedMembers.length > 0) {
+    const stack = assignedMembers.map(m =>
+      `<div class="avatar" style="background:${colorFor(m.id)}" title="${escapeHtml(m.name)}">${initialsOf(m.name)}</div>`
+    ).join("");
+    const names = assignedMembers.map(m => m.name).join(", ");
+    ownerCell.innerHTML = `<div class="owner-avatars">${stack}</div><span class="owner-names" title="${escapeHtml(names)}">${escapeHtml(names)}</span>`;
   } else {
     ownerCell.innerHTML = isAdmin()
       ? `<span class="add-owner">+</span><span>Assign</span>`
@@ -809,20 +978,36 @@ function buildTaskRow(task, project, groupTasks, isSub) {
           pop.innerHTML = `<div class="popover-item" style="cursor:default;color:var(--text-muted)">Assign teammates to this project first</div>`;
           return;
         }
-        pop.innerHTML = `<div class="popover-item" data-id="">Unassigned</div>` +
-          eligible.map(m => `<div class="popover-item" data-id="${m.id}">
-            <div class="avatar" style="background:${colorFor(m.id)};margin-left:0;width:20px;height:20px;font-size:10px;border:none">${initialsOf(m.name)}</div>
-            ${escapeHtml(m.name)}
+        let selected = new Set(assigneeIds);
+        pop.innerHTML = eligible.map(m => `<div class="popover-item checkbox-item" data-id="${m.id}">
+            <span style="display:flex;align-items:center;gap:8px">
+              <div class="avatar" style="background:${colorFor(m.id)};margin-left:0;width:20px;height:20px;font-size:10px;border:none">${initialsOf(m.name)}</div>
+              ${escapeHtml(m.name)}
+            </span>
+            <input type="checkbox" ${selected.has(m.id) ? "checked" : ""}>
           </div>`).join("");
         pop.querySelectorAll(".popover-item[data-id]").forEach(item => {
-          item.addEventListener("click", async () => {
-            try {
-              await api("PATCH", `/api/tasks/${task.id}`, { assigneeId: item.dataset.id || null });
-            } catch (err) { alert(err.message); }
-            closeAllPopovers();
-            await loadAndRenderBoard();
-          });
+          const checkbox = item.querySelector("input");
+          const toggle = () => {
+            const id = item.dataset.id;
+            if (selected.has(id)) selected.delete(id); else selected.add(id);
+            checkbox.checked = selected.has(id);
+          };
+          item.addEventListener("click", (ev) => { if (ev.target !== checkbox) toggle(); });
+          checkbox.addEventListener("click", ev => ev.stopPropagation());
+          checkbox.addEventListener("change", toggle);
         });
+        const doneBtn = document.createElement("button");
+        doneBtn.className = "popover-owner-done";
+        doneBtn.textContent = "Done";
+        doneBtn.addEventListener("click", async () => {
+          try {
+            await api("PATCH", `/api/tasks/${task.id}`, { assigneeIds: Array.from(selected) });
+          } catch (err) { alert(err.message); }
+          closeAllPopovers();
+          await loadAndRenderBoard();
+        });
+        pop.appendChild(doneBtn);
       });
     });
   } else {
@@ -836,7 +1021,7 @@ function buildTaskRow(task, project, groupTasks, isSub) {
   statusPill.style.background = statusDef.color;
   statusPill.textContent = statusDef.label;
 
-  const canEditStatus = isAdmin() || (!!me && task.assigneeId === me.id);
+  const canEditStatus = isAdmin() || (!!me && assigneeIds.includes(me.id));
   if (canEditStatus) {
     statusPill.addEventListener("click", (e) => {
       e.stopPropagation();

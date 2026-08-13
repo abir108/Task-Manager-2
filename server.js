@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
-const { store, save, uid } = require("./db");
+const { store, save, uid, recomputeProjectCategory } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 8790;
@@ -170,9 +170,25 @@ app.delete("/api/members/:id", requireAdmin, async (req, res) => {
   }
   store.members = store.members.filter(m => m.id !== member.id);
   store.projects.forEach(p => { p.memberIds = p.memberIds.filter(id => id !== member.id); });
-  store.tasks.forEach(t => { if (t.assigneeId === member.id) t.assigneeId = null; });
+  store.tasks.forEach(t => { t.assigneeIds = (t.assigneeIds || []).filter(id => id !== member.id); });
   await save();
   res.json({ ok: true });
+});
+
+/* ---------- Sidebar category labels ---------- */
+app.get("/api/category-labels", requireAuth, (req, res) => {
+  res.json(store.categoryLabels);
+});
+
+app.patch("/api/category-labels", requireAdmin, async (req, res) => {
+  ["running", "query", "completed"].forEach(key => {
+    if (req.body[key] !== undefined) {
+      const v = String(req.body[key]).trim();
+      if (v) store.categoryLabels[key] = v;
+    }
+  });
+  await save();
+  res.json(store.categoryLabels);
 });
 
 /* ---------- Projects ---------- */
@@ -192,6 +208,7 @@ app.post("/api/projects", requireAdmin, async (req, res) => {
     desc: String(req.body.desc || "").trim(),
     deadline: String(req.body.deadline || ""),
     memberIds: [],
+    category: "running",
     createdAt: Date.now()
   };
   store.projects.push(project);
@@ -210,6 +227,9 @@ app.patch("/api/projects/:id", requireAdmin, async (req, res) => {
   if (req.body.memberIds !== undefined && Array.isArray(req.body.memberIds)) {
     const validIds = new Set(store.members.map(m => m.id));
     project.memberIds = req.body.memberIds.filter(id => validIds.has(id));
+  }
+  if (req.body.category !== undefined && ["running", "query", "completed"].includes(req.body.category)) {
+    project.category = req.body.category;
   }
   await save();
   res.json(project);
@@ -269,6 +289,53 @@ app.delete("/api/groups/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/groups/:id/duplicate", requireAdmin, async (req, res) => {
+  const group = store.groups.find(g => g.id === req.params.id);
+  if (!group) return res.status(404).json({ error: "Not found" });
+
+  const newGroup = { id: uid(), projectId: group.projectId, name: group.name + " (Copy)", createdAt: Date.now() };
+  const originalTasks = store.tasks.filter(t => t.groupId === group.id);
+  const idMap = new Map();
+  originalTasks.forEach(t => idMap.set(t.id, uid()));
+  const newTasks = originalTasks.map(t => ({
+    ...t,
+    id: idMap.get(t.id),
+    groupId: newGroup.id,
+    parentId: t.parentId ? idMap.get(t.parentId) : null
+  }));
+
+  const groupIndex = store.groups.findIndex(g => g.id === group.id);
+  store.groups.splice(groupIndex + 1, 0, newGroup);
+  store.tasks.push(...newTasks);
+  await save();
+  res.status(201).json({ group: newGroup, tasks: newTasks });
+});
+
+app.post("/api/groups/:id/send-query", requireAdmin, async (req, res) => {
+  const group = store.groups.find(g => g.id === req.params.id);
+  if (!group) return res.status(404).json({ error: "Not found" });
+  const project = store.projects.find(p => p.id === group.projectId);
+  if (!project) return res.status(404).json({ error: "Project not found" });
+
+  const task = {
+    id: uid(),
+    projectId: project.id,
+    groupId: group.id,
+    parentId: null,
+    title: "Send Query",
+    assigneeIds: [],
+    status: store.statuses[0].id,
+    dueDate: "",
+    start: "",
+    end: "",
+    createdAt: Date.now()
+  };
+  store.tasks.push(task);
+  project.category = "query";
+  await save();
+  res.status(201).json({ task, project });
+});
+
 /* ---------- Tasks ---------- */
 app.get("/api/tasks", requireAuth, (req, res) => {
   if (!req.query.projectId) {
@@ -303,7 +370,7 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     groupId: group.id,
     parentId,
     title,
-    assigneeId: null,
+    assigneeIds: [],
     status: store.statuses[0].id,
     dueDate: "",
     start: "",
@@ -321,24 +388,40 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
   const project = store.projects.find(p => p.id === task.projectId);
   if (!project || !projectVisible(project, req.member)) return res.status(403).json({ error: "Not assigned to this project" });
 
+  let statusChanged = false;
+
   if (req.member.role === "admin") {
-    const fields = ["title", "assigneeId", "status", "dueDate", "start", "end"];
-    fields.forEach(f => {
-      if (req.body[f] !== undefined) task[f] = req.body[f];
-    });
+    if (req.body.title !== undefined) task.title = String(req.body.title);
+    if (req.body.dueDate !== undefined) task.dueDate = String(req.body.dueDate);
+    if (req.body.start !== undefined) task.start = String(req.body.start);
+    if (req.body.end !== undefined) task.end = String(req.body.end);
+    if (req.body.assigneeIds !== undefined && Array.isArray(req.body.assigneeIds)) {
+      const validIds = new Set(store.members.map(m => m.id));
+      task.assigneeIds = req.body.assigneeIds.filter(id => validIds.has(id));
+    }
+    if (req.body.status !== undefined) {
+      if (!store.statuses.some(s => s.id === req.body.status)) {
+        return res.status(400).json({ error: "Unknown status" });
+      }
+      task.status = req.body.status;
+      statusChanged = true;
+    }
   } else {
     const keys = Object.keys(req.body);
     if (keys.length !== 1 || keys[0] !== "status") {
       return res.status(403).json({ error: "You can only change the status of your own tasks" });
     }
-    if (task.assigneeId !== req.member.id) {
+    if (!(task.assigneeIds || []).includes(req.member.id)) {
       return res.status(403).json({ error: "This task is not assigned to you" });
     }
     if (!store.statuses.some(s => s.id === req.body.status)) {
       return res.status(400).json({ error: "Unknown status" });
     }
     task.status = req.body.status;
+    statusChanged = true;
   }
+
+  if (statusChanged) recomputeProjectCategory(task.projectId);
 
   await save();
   res.json(task);
@@ -405,11 +488,21 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
     return res.status(400).json({ error: "Backup must include at least one admin account" });
   }
 
+  incoming.projects.forEach(p => {
+    if (!p.category || !["running", "query", "completed"].includes(p.category)) p.category = "running";
+  });
+  incoming.tasks.forEach(t => {
+    if (!Array.isArray(t.assigneeIds)) t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];
+  });
+
   store.members = incoming.members;
   store.projects = incoming.projects;
   store.groups = incoming.groups;
   store.tasks = incoming.tasks;
   store.statuses = incoming.statuses;
+  if (incoming.categoryLabels && typeof incoming.categoryLabels === "object") {
+    store.categoryLabels = incoming.categoryLabels;
+  }
   await save();
   res.json({ ok: true });
 });
