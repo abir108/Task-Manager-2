@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WorkFlow — Project Dashboard</title>
+<title>Project Manager — CloudTech Bookkeeping</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <form class="login-card" id="login-form">
     <div class="brand login-brand">
       <span class="brand-mark">W</span>
-      <span class="brand-name">WorkFlow</span>
+      <span class="brand-name">Project Manager</span>
     </div>
     <p class="subtitle">Sign in with your name and PIN</p>
     <label>Name
@@ -33,7 +33,7 @@
   <aside class="sidebar">
     <div class="brand">
       <span class="brand-mark">W</span>
-      <span class="brand-name">WorkFlow</span>
+      <span class="brand-name">Project Manager</span>
     </div>
 
     <nav class="nav">
@@ -55,8 +55,11 @@
 
     <div class="sidebar-footer">
       <div class="user-card">
-        <div class="user-name" id="current-user-name">—</div>
-        <div class="user-role" id="current-user-role">—</div>
+        <div class="avatar" id="current-user-avatar">—</div>
+        <div>
+          <div class="user-name" id="current-user-name">—</div>
+          <div class="user-role" id="current-user-role">—</div>
+        </div>
       </div>
       <button class="btn btn-ghost logout-btn" id="btn-logout">Log out</button>
     </div>
@@ -90,6 +93,24 @@
         <div class="stat-card">
           <div class="stat-value" id="stat-done">0%</div>
           <div class="stat-label">Completed</div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="panel">
+          <h2>Projects by status</h2>
+          <div id="category-breakdown" class="category-breakdown"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head-row">
+            <h2>Task completion trend</h2>
+            <div class="trend-toggle">
+              <button class="trend-btn active" data-range="weekly">Weekly</button>
+              <button class="trend-btn" data-range="monthly">Monthly</button>
+            </div>
+          </div>
+          <div id="trend-chart" class="trend-chart"></div>
         </div>
       </div>
 
@@ -195,6 +216,16 @@
 <div class="modal-overlay" id="modal-member">
   <div class="modal">
     <h2 id="member-modal-title">Add Teammate</h2>
+    <div class="avatar-picker">
+      <div class="avatar avatar-preview" id="member-avatar-preview">?</div>
+      <div class="avatar-picker-actions">
+        <label class="btn btn-ghost file-btn">
+          Choose Photo
+          <input type="file" id="input-member-avatar" accept="image/*" hidden>
+        </label>
+        <button type="button" class="btn btn-ghost" id="btn-remove-avatar">Remove</button>
+      </div>
+    </div>
     <label>Name
       <input type="text" id="input-member-name" placeholder="e.g. Sarah Khan">
     </label>

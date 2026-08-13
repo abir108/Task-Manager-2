@@ -70,7 +70,13 @@ function requireAdmin(req, res, next) {
 }
 
 function publicMember(m) {
-  return { id: m.id, name: m.name, role: m.role, createdAt: m.createdAt };
+  return { id: m.id, name: m.name, role: m.role, avatarUrl: m.avatarUrl || null, createdAt: m.createdAt };
+}
+
+const MAX_AVATAR_LENGTH = 400000; // ~290KB decoded, generous for a small profile photo
+
+function isValidAvatarUrl(v) {
+  return typeof v === "string" && v.startsWith("data:image/") && v.length <= MAX_AVATAR_LENGTH;
 }
 
 function projectVisible(project, member) {
@@ -109,7 +115,7 @@ app.get("/api/me", (req, res) => {
 
 /* ---------- Lightweight directory (any logged-in user, name-only) ---------- */
 app.get("/api/team-lite", requireAuth, (req, res) => {
-  res.json(store.members.map(m => ({ id: m.id, name: m.name })));
+  res.json(store.members.map(m => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl || null })));
 });
 
 /* ---------- Members (admin only) ---------- */
@@ -126,7 +132,12 @@ app.post("/api/members", requireAdmin, async (req, res) => {
   if (store.members.some(m => m.name.toLowerCase() === name.toLowerCase())) {
     return res.status(409).json({ error: "That name is already in use" });
   }
-  const member = { id: uid(), name, pinHash: bcrypt.hashSync(pin, 10), role, createdAt: Date.now() };
+  let avatarUrl = null;
+  if (req.body.avatarUrl) {
+    if (!isValidAvatarUrl(req.body.avatarUrl)) return res.status(400).json({ error: "Invalid or too large profile picture" });
+    avatarUrl = req.body.avatarUrl;
+  }
+  const member = { id: uid(), name, pinHash: bcrypt.hashSync(pin, 10), role, avatarUrl, createdAt: Date.now() };
   store.members.push(member);
   await save();
   res.status(201).json(publicMember(member));
@@ -156,6 +167,15 @@ app.patch("/api/members/:id", requireAdmin, async (req, res) => {
       if (otherAdmins.length === 0) return res.status(400).json({ error: "At least one admin must remain" });
     }
     member.role = nextRole;
+  }
+  if (req.body.avatarUrl !== undefined) {
+    if (req.body.avatarUrl === null || req.body.avatarUrl === "") {
+      member.avatarUrl = null;
+    } else if (isValidAvatarUrl(req.body.avatarUrl)) {
+      member.avatarUrl = req.body.avatarUrl;
+    } else {
+      return res.status(400).json({ error: "Invalid or too large profile picture" });
+    }
   }
   await save();
   res.json(publicMember(member));
@@ -375,6 +395,7 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     dueDate: "",
     start: "",
     end: "",
+    completedAt: null,
     createdAt: Date.now()
   };
   store.tasks.push(task);
@@ -421,7 +442,10 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
     statusChanged = true;
   }
 
-  if (statusChanged) recomputeProjectCategory(task.projectId);
+  if (statusChanged) {
+    task.completedAt = task.status === "done" ? Date.now() : null;
+    recomputeProjectCategory(task.projectId);
+  }
 
   await save();
   res.json(task);

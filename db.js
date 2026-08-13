@@ -75,6 +75,10 @@ function load() {
       t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];
       changed = true;
     }
+    if (t.completedAt === undefined) {
+      t.completedAt = t.status === "done" ? t.createdAt : null;
+      changed = true;
+    }
   });
   if (changed) {
     fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));

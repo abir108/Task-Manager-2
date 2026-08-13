@@ -28,6 +28,15 @@ function colorFor(id) {
   for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   return COLORS[hash % COLORS.length];
 }
+
+function avatarHtml(entity, extraStyle) {
+  if (!entity) return "";
+  const style = extraStyle || "";
+  if (entity.avatarUrl) {
+    return `<div class="avatar" style="overflow:hidden;background:#e4e6f0;${style}" title="${escapeHtml(entity.name)}"><img src="${entity.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
+  }
+  return `<div class="avatar" style="background:${colorFor(entity.id)};${style}" title="${escapeHtml(entity.name)}">${initialsOf(entity.name)}</div>`;
+}
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
@@ -104,6 +113,14 @@ async function afterLogin() {
   document.body.classList.toggle("role-member", !isAdmin());
   document.getElementById("current-user-name").textContent = me.name;
   document.getElementById("current-user-role").textContent = isAdmin() ? "Admin" : "Member";
+  const avatarEl = document.getElementById("current-user-avatar");
+  if (me.avatarUrl) {
+    avatarEl.style.background = "";
+    avatarEl.innerHTML = `<img src="${me.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">`;
+  } else {
+    avatarEl.style.background = colorFor(me.id);
+    avatarEl.textContent = initialsOf(me.name);
+  }
   document.getElementById("projects-subtitle").textContent = isAdmin()
     ? "Create and manage your projects"
     : "Projects you've been assigned to";
@@ -211,7 +228,7 @@ async function renderProjects() {
     const avatars = project.memberIds
       .map(mid => team.find(m => m.id === mid))
       .filter(Boolean)
-      .map(m => `<div class="avatar" style="background:${colorFor(m.id)}" title="${escapeHtml(m.name)}">${initialsOf(m.name)}</div>`)
+      .map(m => avatarHtml(m))
       .join("");
 
     const category = project.category || "running";
@@ -373,7 +390,7 @@ async function openAssignModal(projectId) {
       row.className = "assign-row";
       const checked = project.memberIds.includes(m.id) ? "checked" : "";
       row.innerHTML = `
-        <div class="avatar" style="background:${colorFor(m.id)}">${initialsOf(m.name)}</div>
+        ${avatarHtml(m)}
         <div class="info">${escapeHtml(m.name)}</div>
         <input type="checkbox" ${checked} data-member="${m.id}">
       `;
@@ -398,6 +415,53 @@ async function openAssignModal(projectId) {
    TEAM (admin only)
 =========================================================== */
 
+let pendingAvatarUrl; // undefined = no change, string = new image, null = removed
+
+function resetAvatarPicker(currentUrl) {
+  pendingAvatarUrl = undefined;
+  const preview = document.getElementById("member-avatar-preview");
+  if (currentUrl) {
+    preview.style.background = "";
+    preview.innerHTML = `<img src="${currentUrl}" alt="">`;
+  } else {
+    preview.style.background = "";
+    preview.textContent = "?";
+  }
+}
+
+document.getElementById("input-member-avatar").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 200;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      const s = Math.min(img.width, img.height);
+      const sx = (img.width - s) / 2;
+      const sy = (img.height - s) / 2;
+      ctx.drawImage(img, sx, sy, s, s, 0, 0, size, size);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      pendingAvatarUrl = dataUrl;
+      const preview = document.getElementById("member-avatar-preview");
+      preview.style.background = "";
+      preview.innerHTML = `<img src="${dataUrl}" alt="">`;
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById("btn-remove-avatar").addEventListener("click", () => {
+  pendingAvatarUrl = null;
+  resetAvatarPicker(null);
+});
+
 document.getElementById("btn-new-member").addEventListener("click", () => {
   document.getElementById("member-modal-title").textContent = "Add Teammate";
   document.getElementById("input-member-name").value = "";
@@ -405,6 +469,7 @@ document.getElementById("btn-new-member").addEventListener("click", () => {
   document.getElementById("input-member-pin").placeholder = "e.g. 4821";
   document.getElementById("input-member-admin").checked = false;
   document.getElementById("member-error").textContent = "";
+  resetAvatarPicker(null);
   delete document.getElementById("btn-save-member").dataset.editId;
   openModal("modal-member");
 });
@@ -423,10 +488,13 @@ document.getElementById("btn-save-member").addEventListener("click", async () =>
     if (editId) {
       const body = { name, role: admin ? "admin" : "member" };
       if (pin) body.pin = pin;
+      if (pendingAvatarUrl !== undefined) body.avatarUrl = pendingAvatarUrl;
       await api("PATCH", `/api/members/${editId}`, body);
     } else {
       if (!pin) { errEl.textContent = "Please set a PIN."; return; }
-      await api("POST", "/api/members", { name, pin, role: admin ? "admin" : "member" });
+      const body = { name, pin, role: admin ? "admin" : "member" };
+      if (pendingAvatarUrl) body.avatarUrl = pendingAvatarUrl;
+      await api("POST", "/api/members", body);
     }
     closeModal("modal-member");
     await renderTeam();
@@ -442,6 +510,7 @@ function openEditMember(m) {
   document.getElementById("input-member-pin").placeholder = "Leave blank to keep current PIN";
   document.getElementById("input-member-admin").checked = m.role === "admin";
   document.getElementById("member-error").textContent = "";
+  resetAvatarPicker(m.avatarUrl);
   document.getElementById("btn-save-member").dataset.editId = m.id;
   openModal("modal-member");
 }
@@ -464,7 +533,7 @@ async function renderTeam() {
     const card = document.createElement("div");
     card.className = "member-card";
     card.innerHTML = `
-      <div class="avatar" style="background:${colorFor(m.id)}">${initialsOf(m.name)}</div>
+      ${avatarHtml(m)}
       <div class="info">
         <div class="name">${escapeHtml(m.name)} ${m.role === "admin" ? '<span class="admin-badge">Admin</span>' : ""}</div>
       </div>
@@ -959,9 +1028,7 @@ function buildTaskRow(task, project, groupTasks, isSub) {
   const ownerCell = document.createElement("div");
   ownerCell.className = "owner-cell";
   if (assignedMembers.length > 0) {
-    const stack = assignedMembers.map(m =>
-      `<div class="avatar" style="background:${colorFor(m.id)}" title="${escapeHtml(m.name)}">${initialsOf(m.name)}</div>`
-    ).join("");
+    const stack = assignedMembers.map(m => avatarHtml(m)).join("");
     const names = assignedMembers.map(m => m.name).join(", ");
     ownerCell.innerHTML = `<div class="owner-avatars">${stack}</div><span class="owner-names" title="${escapeHtml(names)}">${escapeHtml(names)}</span>`;
   } else {
@@ -981,7 +1048,7 @@ function buildTaskRow(task, project, groupTasks, isSub) {
         let selected = new Set(assigneeIds);
         pop.innerHTML = eligible.map(m => `<div class="popover-item checkbox-item" data-id="${m.id}">
             <span style="display:flex;align-items:center;gap:8px">
-              <div class="avatar" style="background:${colorFor(m.id)};margin-left:0;width:20px;height:20px;font-size:10px;border:none">${initialsOf(m.name)}</div>
+              ${avatarHtml(m, "margin-left:0;width:20px;height:20px;font-size:10px;border:none")}
               ${escapeHtml(m.name)}
             </span>
             <input type="checkbox" ${selected.has(m.id) ? "checked" : ""}>
@@ -1219,9 +1286,13 @@ function buildSummaryRow(tasksArr) {
    DASHBOARD
 =========================================================== */
 
+let dashboardAllTasks = [];
+let trendRange = "weekly";
+
 async function renderDashboard() {
   projects = await api("GET", "/api/projects");
   const allTasks = await api("GET", "/api/tasks");
+  dashboardAllTasks = allTasks;
 
   document.getElementById("stat-projects").textContent = projects.length;
   if (isAdmin()) {
@@ -1233,6 +1304,9 @@ async function renderDashboard() {
   const done = allTasks.filter(t => t.status === "done").length;
   const pct = allTasks.length ? Math.round((done / allTasks.length) * 100) : 0;
   document.getElementById("stat-done").textContent = pct + "%";
+
+  renderCategoryBreakdown(projects);
+  renderTrendChart(allTasks, trendRange);
 
   const list = document.getElementById("progress-list");
   list.innerHTML = "";
@@ -1259,6 +1333,82 @@ async function renderDashboard() {
     list.appendChild(item);
   });
 }
+
+function renderCategoryBreakdown(projectsArr) {
+  const container = document.getElementById("category-breakdown");
+  container.innerHTML = "";
+  const total = projectsArr.length;
+
+  if (total === 0) {
+    container.innerHTML = '<p class="empty-hint">No projects yet.</p>';
+    return;
+  }
+
+  CATEGORY_KEYS.forEach(key => {
+    const count = projectsArr.filter(p => (p.category || "running") === key).length;
+    const pctOf = total ? Math.round((count / total) * 100) : 0;
+    const row = document.createElement("div");
+    row.className = "cat-breakdown-row";
+    row.innerHTML = `
+      <div class="cat-breakdown-top">
+        <span class="category-badge ${key}">${escapeHtml(categoryLabels[key] || key)}</span>
+        <span class="cat-breakdown-count">${count}</span>
+      </div>
+      <div class="progress-bar-bg"><div class="progress-bar-fill cat-fill-${key}" style="width:${pctOf}%"></div></div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function bucketTasksByPeriod(allTasks, range) {
+  const now = new Date();
+  const buckets = [];
+  if (range === "weekly") {
+    for (let i = 7; i >= 0; i--) {
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 7);
+      const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 6);
+      buckets.push({ start, end, label: start.toLocaleDateString(undefined, { month: "short", day: "numeric" }), count: 0 });
+    }
+  } else {
+    for (let i = 5; i >= 0; i--) {
+      const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+      buckets.push({ start, end, label: start.toLocaleDateString(undefined, { month: "short" }), count: 0 });
+    }
+  }
+  allTasks.forEach(t => {
+    if (!t.completedAt) return;
+    const d = new Date(t.completedAt);
+    const bucket = buckets.find(b => d >= b.start && d <= new Date(b.end.getFullYear(), b.end.getMonth(), b.end.getDate(), 23, 59, 59, 999));
+    if (bucket) bucket.count++;
+  });
+  return buckets;
+}
+
+function renderTrendChart(allTasks, range) {
+  const buckets = bucketTasksByPeriod(allTasks, range);
+  const max = Math.max(1, ...buckets.map(b => b.count));
+  const container = document.getElementById("trend-chart");
+  container.innerHTML = "";
+  buckets.forEach(b => {
+    const col = document.createElement("div");
+    col.className = "trend-col";
+    col.innerHTML = `
+      <div class="trend-bar-wrap"><div class="trend-bar" style="height:${(b.count / max) * 100}%" title="${b.count} completed"></div></div>
+      <div class="trend-count">${b.count}</div>
+      <div class="trend-label">${b.label}</div>
+    `;
+    container.appendChild(col);
+  });
+}
+
+document.querySelectorAll(".trend-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    trendRange = btn.dataset.range;
+    document.querySelectorAll(".trend-btn").forEach(b => b.classList.toggle("active", b === btn));
+    renderTrendChart(dashboardAllTasks, trendRange);
+  });
+});
 
 /* ---------- Init ---------- */
 tryResume();
