@@ -16,7 +16,6 @@ const expandedTasks = new Set();
 const collapsedGroups = new Set();
 const collapsedCategories = new Set();
 const CATEGORY_KEYS = ["running", "query", "completed"];
-const ALL_CATEGORY_KEYS = CATEGORY_KEYS.concat(["archived"]);
 let dragTaskId = null;
 let dragGroupId = null;
 let projectsViewMode = localStorage.getItem("projectsViewMode") || "grid";
@@ -153,13 +152,14 @@ navButtons.forEach(btn => {
 });
 
 async function showView(name) {
-  if ((name === "team" || name === "backup") && !isAdmin()) name = "dashboard";
+  if ((name === "team" || name === "backup" || name === "archived") && !isAdmin()) name = "dashboard";
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById("view-" + name).classList.add("active");
   navButtons.forEach(b => b.classList.toggle("active", b.dataset.view === name));
   if (name === "dashboard") await renderDashboard();
   if (name === "projects") await renderProjects();
   if (name === "team") await renderTeam();
+  if (name === "archived") await renderArchivedPage();
 }
 
 document.getElementById("btn-back-projects").addEventListener("click", () => showView("projects"));
@@ -238,17 +238,6 @@ function attachProjectActions(el, project) {
         } catch (err) { alert(err.message); }
       });
     }
-    const deletePermBtn = el.querySelector('[data-action="delete-permanent"]');
-    if (deletePermBtn) {
-      deletePermBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        if (!confirm(`Permanently delete "${project.name}"? This removes it and all its tasks forever. This cannot be undone.`)) return;
-        try {
-          await api("DELETE", `/api/projects/${project.id}`);
-          await renderProjects();
-        } catch (err) { alert(err.message); }
-      });
-    }
   }
   el.addEventListener("click", () => openBoard(project.id));
 }
@@ -270,7 +259,7 @@ function renderProjectsFilter() {
   container.innerHTML = "";
 
   const options = [{ key: "all", label: "All Projects", dot: null }].concat(
-    ALL_CATEGORY_KEYS.map(key => ({ key, label: categoryLabels[key] || key, dot: key }))
+    CATEGORY_KEYS.map(key => ({ key, label: categoryLabels[key] || key, dot: key }))
   );
 
   options.forEach(opt => {
@@ -331,14 +320,11 @@ async function renderProjects() {
       .map(m => avatarHtml(m))
       .join("");
     const categorySelectHtml = isAdmin() ? `<select class="category-select" data-action="category">
-        ${ALL_CATEGORY_KEYS.map(k => `<option value="${k}" ${k === category ? "selected" : ""}>${escapeHtml(categoryLabels[k] || k)}</option>`).join("")}
+        ${CATEGORY_KEYS.map(k => `<option value="${k}" ${k === category ? "selected" : ""}>${escapeHtml(categoryLabels[k] || k)}</option>`).join("")}
       </select>` : "";
-    const deleteBtnHtml = category === "archived"
-      ? '<button data-action="delete-permanent" class="danger">Delete Permanently</button>'
-      : '<button data-action="delete">Delete</button>';
     const actionButtonsHtml = `
       <button data-action="board">Open board</button>
-      ${isAdmin() ? `<button data-action="assign">Assign team</button>${deleteBtnHtml}` : ""}
+      ${isAdmin() ? '<button data-action="assign">Assign team</button><button data-action="delete">Delete</button>' : ""}
     `;
 
     const card = document.createElement("div");
@@ -380,12 +366,67 @@ async function renderProjects() {
   renderSidebarTree();
 }
 
+/* ---------- Archived projects (admin only) ---------- */
+async function renderArchivedPage() {
+  projects = await api("GET", "/api/projects");
+  const archived = projects.filter(p => (p.category || "running") === "archived");
+  const list = document.getElementById("archived-list");
+  const empty = document.getElementById("archived-empty");
+  list.innerHTML = "";
+
+  if (archived.length === 0) {
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+
+  const allTasks = await api("GET", "/api/tasks");
+
+  archived.forEach(project => {
+    const projTasks = allTasks.filter(t => t.projectId === project.id);
+    const row = document.createElement("div");
+    row.className = "project-row";
+    row.innerHTML = `
+      <span class="pr-name">${escapeHtml(project.name)}</span>
+      <span class="category-badge archived">Archived</span>
+      <span class="pr-meta">${projTasks.length} task${projTasks.length === 1 ? "" : "s"}</span>
+      <div class="card-actions">
+        <button data-action="board">Open board</button>
+        <button data-action="restore">Restore</button>
+        <button data-action="delete-permanent" class="danger">Delete Permanently</button>
+      </div>
+    `;
+    row.querySelector('[data-action="board"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      openBoard(project.id);
+    });
+    row.querySelector('[data-action="restore"]').addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await api("PATCH", `/api/projects/${project.id}`, { category: "running" });
+        await renderArchivedPage();
+        renderSidebarTree();
+      } catch (err) { alert(err.message); }
+    });
+    row.querySelector('[data-action="delete-permanent"]').addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Permanently delete "${project.name}"? This removes it and all its tasks forever. This cannot be undone.`)) return;
+      try {
+        await api("DELETE", `/api/projects/${project.id}`);
+        await renderArchivedPage();
+      } catch (err) { alert(err.message); }
+    });
+    row.addEventListener("click", () => openBoard(project.id));
+    list.appendChild(row);
+  });
+}
+
 /* ---------- Sidebar project tree ---------- */
 function renderSidebarTree() {
   const container = document.getElementById("sidebar-tree");
   container.innerHTML = "";
 
-  ALL_CATEGORY_KEYS.forEach(key => {
+  CATEGORY_KEYS.forEach(key => {
     const catProjects = projects.filter(p => (p.category || "running") === key);
     const section = document.createElement("div");
     section.className = "tree-category";
