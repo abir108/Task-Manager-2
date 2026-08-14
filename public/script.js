@@ -19,6 +19,7 @@ const CATEGORY_KEYS = ["running", "query", "completed"];
 let dragTaskId = null;
 let dragGroupId = null;
 let projectsViewMode = localStorage.getItem("projectsViewMode") || "grid";
+let projectsFilter = "all";
 
 function isAdmin() { return !!me && me.role === "admin"; }
 
@@ -248,6 +249,28 @@ function setProjectsViewMode(mode) {
 document.getElementById("btn-view-grid").addEventListener("click", () => setProjectsViewMode("grid"));
 document.getElementById("btn-view-list").addEventListener("click", () => setProjectsViewMode("list"));
 
+function renderProjectsFilter() {
+  const container = document.getElementById("projects-filter");
+  container.innerHTML = "";
+
+  const options = [{ key: "all", label: "All Projects", dot: null }].concat(
+    CATEGORY_KEYS.map(key => ({ key, label: categoryLabels[key] || key, dot: key }))
+  );
+
+  options.forEach(opt => {
+    const chip = document.createElement("button");
+    chip.className = "filter-chip" + (projectsFilter === opt.key ? " active" : "");
+    const count = opt.key === "all" ? projects.length : projects.filter(p => (p.category || "running") === opt.key).length;
+    chip.innerHTML = (opt.dot ? `<span class="dot" style="background:var(--cat-${opt.dot})"></span>` : "") +
+      `${escapeHtml(opt.label)} (${count})`;
+    chip.addEventListener("click", () => {
+      projectsFilter = opt.key;
+      renderProjects();
+    });
+    container.appendChild(chip);
+  });
+}
+
 async function renderProjects() {
   projects = await api("GET", "/api/projects");
   const allTasks = await api("GET", "/api/tasks");
@@ -258,6 +281,7 @@ async function renderProjects() {
   grid.innerHTML = "";
   list.innerHTML = "";
   setProjectsViewMode(projectsViewMode);
+  renderProjectsFilter();
 
   if (projects.length === 0) {
     empty.textContent = isAdmin() ? 'No projects yet. Click "New Project" to create your first one.' : "You haven't been assigned to any projects yet.";
@@ -265,9 +289,20 @@ async function renderProjects() {
     renderSidebarTree();
     return;
   }
+
+  const filteredProjects = projectsFilter === "all"
+    ? projects
+    : projects.filter(p => (p.category || "running") === projectsFilter);
+
+  if (filteredProjects.length === 0) {
+    empty.textContent = `No projects in "${categoryLabels[projectsFilter] || projectsFilter}".`;
+    empty.style.display = "block";
+    renderSidebarTree();
+    return;
+  }
   empty.style.display = "none";
 
-  projects.forEach(project => {
+  filteredProjects.forEach(project => {
     const projTasks = allTasks.filter(t => t.projectId === project.id);
     const done = projTasks.filter(t => t.status === "done").length;
     const pct = projTasks.length ? Math.round((done / projTasks.length) * 100) : 0;

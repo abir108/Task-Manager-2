@@ -365,6 +365,30 @@ body.role-member #nav-team { display: none; }
 }
 .view-toggle-btn.active { background: #fff; color: var(--accent); box-shadow: var(--shadow); }
 
+.projects-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+.filter-chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+.filter-chip:hover { border-color: var(--accent); color: var(--accent); }
+.filter-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.filter-chip.active .dot { box-shadow: 0 0 0 2px rgba(255,255,255,0.5); }
+
 .projects-list-view {
   display: none;
   flex-direction: column;
