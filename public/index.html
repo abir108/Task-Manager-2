@@ -179,15 +179,15 @@
       </header>
 
       <div class="stat-grid" id="report-alert-grid">
-        <div class="stat-card alert-card" id="report-stat-overdue-tasks">
+        <div class="stat-card alert-card clickable" id="report-stat-overdue-tasks" title="Click to see the list">
           <div class="stat-value" id="report-overdue-tasks">0</div>
           <div class="stat-label">Overdue tasks</div>
         </div>
-        <div class="stat-card alert-card" id="report-stat-overdue-projects">
+        <div class="stat-card alert-card clickable" id="report-stat-overdue-projects" title="Click to see the list">
           <div class="stat-value" id="report-overdue-projects">0</div>
           <div class="stat-label">Overdue projects</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card clickable" id="report-stat-due-week" title="Click to see the list">
           <div class="stat-value" id="report-due-week">0</div>
           <div class="stat-label">Due within 7 days</div>
         </div>
@@ -371,6 +371,17 @@
     <div id="assign-list" class="assign-list"></div>
     <div class="modal-actions">
       <button class="btn btn-primary" data-close="modal-assign">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-report-detail">
+  <div class="modal report-detail-modal">
+    <h2 id="report-detail-title">Details</h2>
+    <p class="subtitle" id="report-detail-subtitle"></p>
+    <div id="report-detail-body" class="report-detail-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-close="modal-report-detail">Close</button>
     </div>
   </div>
 </div>

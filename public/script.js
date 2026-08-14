@@ -1696,6 +1696,12 @@ document.querySelectorAll(".trend-btn").forEach(btn => {
 =========================================================== */
 let reportEmployeeRows = [];
 let reportProjectRows = [];
+let reportOverdueTasks = [];
+let reportOverdueProjectsList = [];
+let reportDueSoonTasks = [];
+let reportAllTasksCache = [];
+let reportAllProjectsCache = [];
+let reportMembersCache = [];
 
 function daysUntil(dateStr) {
   if (!dateStr) return null;
@@ -1740,6 +1746,130 @@ function downloadCsv(filename, header, rows) {
   URL.revokeObjectURL(url);
 }
 
+function memberNamesFor(ids) {
+  if (!ids || !ids.length) return "Unassigned";
+  return ids.map(id => {
+    const m = reportMembersCache.find(x => x.id === id);
+    return m ? m.name : "Unknown";
+  }).join(", ");
+}
+
+function openReportDetail(title, subtitle, bodyHtml) {
+  document.getElementById("report-detail-title").textContent = title;
+  document.getElementById("report-detail-subtitle").textContent = subtitle || "";
+  document.getElementById("report-detail-body").innerHTML = bodyHtml;
+  attachDetailRowNav(document.getElementById("report-detail-body"));
+  openModal("modal-report-detail");
+}
+
+function attachDetailRowNav(container) {
+  container.querySelectorAll(".report-detail-row[data-project]").forEach(row => {
+    const pid = row.dataset.project;
+    if (!pid) return;
+    row.addEventListener("click", () => {
+      closeModal("modal-report-detail");
+      openBoard(pid);
+    });
+  });
+}
+
+function taskListHtml(rows) {
+  if (!rows.length) return `<p class="empty-hint">Nothing here.</p>`;
+  return `<div class="report-detail-list">` + rows.map(({ task, project }) => {
+    const urgency = getUrgency(task.dueDate, task.status === "done");
+    return `
+      <div class="report-detail-row" data-project="${project ? project.id : ""}">
+        <div class="rdr-main">
+          <span class="rdr-title">${escapeHtml(task.title)}</span>
+          <span class="rdr-sub">${project ? escapeHtml(project.name) : "—"} · ${escapeHtml(memberNamesFor(task.assigneeIds))}</span>
+        </div>
+        <span class="urgency-badge urgency-${urgency.cls}">${task.dueDate ? formatDate(task.dueDate) + " · " : ""}${urgency.label}</span>
+      </div>
+    `;
+  }).join("") + `</div>`;
+}
+
+function projectListHtml(rows) {
+  if (!rows.length) return `<p class="empty-hint">Nothing here.</p>`;
+  return `<div class="report-detail-list">` + rows.map(({ project, tasks }) => {
+    const done = tasks.filter(t => t.status === "done").length;
+    const pct = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+    const urgency = getUrgency(project.deadline, project.category === "completed");
+    return `
+      <div class="report-detail-row" data-project="${project.id}">
+        <div class="rdr-main">
+          <span class="rdr-title">${escapeHtml(project.name)}</span>
+          <span class="rdr-sub">${done}/${tasks.length} tasks done · ${pct}%</span>
+        </div>
+        <span class="urgency-badge urgency-${urgency.cls}">${formatDate(project.deadline)} · ${urgency.label}</span>
+      </div>
+    `;
+  }).join("") + `</div>`;
+}
+
+function employeeProjectBreakdown(memberId) {
+  const byProject = new Map();
+  reportAllTasksCache.forEach(t => {
+    if (!(t.assigneeIds || []).includes(memberId)) return;
+    if (!byProject.has(t.projectId)) byProject.set(t.projectId, []);
+    byProject.get(t.projectId).push(t);
+  });
+  return Array.from(byProject.entries()).map(([projectId, tks]) => {
+    const project = reportAllProjectsCache.find(p => p.id === projectId);
+    const done = tks.filter(t => t.status === "done").length;
+    return { project, tasks: tks, done, total: tks.length, pct: tks.length ? Math.round((done / tks.length) * 100) : 0 };
+  }).sort((a, b) => b.total - a.total);
+}
+
+function openEmployeeDetail(row) {
+  const breakdown = employeeProjectBreakdown(row.member.id);
+  const assignedTasks = reportAllTasksCache
+    .filter(t => (t.assigneeIds || []).includes(row.member.id))
+    .sort((a, b) => {
+      if ((a.status === "done") !== (b.status === "done")) return a.status === "done" ? 1 : -1;
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return new Date(a.dueDate) - new Date(b.dueDate);
+    });
+
+  const summaryHtml = `
+    <div class="report-detail-summary">
+      <div><span class="rds-num">${row.assignedCount}</span><span class="rds-lbl">Tasks assigned</span></div>
+      <div><span class="rds-num">${row.projectCount}</span><span class="rds-lbl">Projects</span></div>
+      <div><span class="rds-num">${row.rate}%</span><span class="rds-lbl">Completion rate</span></div>
+      <div><span class="rds-num">${row.weekCount}/${row.monthCount}/${row.yearCount}</span><span class="rds-lbl">Done Wk/Mo/Yr</span></div>
+    </div>
+  `;
+
+  const breakdownHtml = `
+    <h3 class="report-detail-subhead">By project</h3>
+    ${breakdown.length ? `<div class="report-detail-list">` + breakdown.map(b => `
+      <div class="report-detail-row" data-project="${b.project ? b.project.id : ""}">
+        <div class="rdr-main">
+          <span class="rdr-title">${b.project ? escapeHtml(b.project.name) : "Unknown project"}</span>
+          <span class="rdr-sub">${b.done}/${b.total} tasks done</span>
+        </div>
+        <div class="report-progress" style="min-width:110px">
+          <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${b.pct}%"></div></div>
+          <span class="report-progress-txt">${b.pct}%</span>
+        </div>
+      </div>
+    `).join("") + `</div>` : `<p class="empty-hint">Not assigned to any project.</p>`}
+  `;
+
+  const tasksHtml = `
+    <h3 class="report-detail-subhead">All assigned tasks</h3>
+    ${taskListHtml(assignedTasks.map(task => ({ task, project: reportAllProjectsCache.find(p => p.id === task.projectId) })))}
+  `;
+
+  openReportDetail(
+    row.member.name,
+    `${row.assignedCount} task${row.assignedCount === 1 ? "" : "s"} across ${row.projectCount} project${row.projectCount === 1 ? "" : "s"}`,
+    summaryHtml + breakdownHtml + tasksHtml
+  );
+}
+
 async function renderReportPage() {
   const [allMembers, allProjects, allTasksRaw] = await Promise.all([
     api("GET", "/api/members"),
@@ -1749,6 +1879,9 @@ async function renderReportPage() {
   const activeProjects = allProjects.filter(p => (p.category || "running") !== "archived");
   const activeProjectIds = new Set(activeProjects.map(p => p.id));
   const allTasks = allTasksRaw.filter(t => activeProjectIds.has(t.projectId));
+  reportAllTasksCache = allTasks;
+  reportAllProjectsCache = activeProjects;
+  reportMembersCache = allMembers;
 
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86400000);
@@ -1765,6 +1898,25 @@ async function renderReportPage() {
   }).length;
   const overallDone = allTasks.filter(t => t.status === "done").length;
   const overallRate = allTasks.length ? Math.round((overallDone / allTasks.length) * 100) : 0;
+
+  reportOverdueTasks = allTasks
+    .filter(t => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) < 0)
+    .map(task => ({ task, project: activeProjects.find(p => p.id === task.projectId) }))
+    .sort((a, b) => new Date(a.task.dueDate) - new Date(b.task.dueDate));
+
+  reportOverdueProjectsList = activeProjects
+    .filter(p => p.category !== "completed" && p.deadline && daysUntil(p.deadline) < 0)
+    .map(project => ({ project, tasks: allTasks.filter(t => t.projectId === project.id) }))
+    .sort((a, b) => new Date(a.project.deadline) - new Date(b.project.deadline));
+
+  reportDueSoonTasks = allTasks
+    .filter(t => {
+      if (t.status === "done" || !t.dueDate) return false;
+      const d = daysUntil(t.dueDate);
+      return d !== null && d >= 0 && d <= 7;
+    })
+    .map(task => ({ task, project: activeProjects.find(p => p.id === task.projectId) }))
+    .sort((a, b) => new Date(a.task.dueDate) - new Date(b.task.dueDate));
 
   document.getElementById("report-overdue-tasks").textContent = overdueTasks;
   document.getElementById("report-overdue-projects").textContent = overdueProjects;
@@ -1822,6 +1974,7 @@ async function renderReportPage() {
           ? `<span class="urgency-badge urgency-${urgency.cls}" title="${escapeHtml(r.nextTaskTitle || "")}">${formatDate(r.nextDeadline)} · ${urgency.label}</span>`
           : `<span class="urgency-badge urgency-none">No upcoming</span>`}</td>
       `;
+      tr.addEventListener("click", () => openEmployeeDetail(r));
       empBody.appendChild(tr);
     });
   }
@@ -1861,10 +2014,35 @@ async function renderReportPage() {
           </div>
         </td>
       `;
+      tr.addEventListener("click", () => openBoard(r.project.id));
       projBody.appendChild(tr);
     });
   }
 }
+
+document.getElementById("report-stat-overdue-tasks").addEventListener("click", () => {
+  openReportDetail(
+    "Overdue Tasks",
+    `${reportOverdueTasks.length} task${reportOverdueTasks.length === 1 ? "" : "s"} past due`,
+    taskListHtml(reportOverdueTasks)
+  );
+});
+
+document.getElementById("report-stat-overdue-projects").addEventListener("click", () => {
+  openReportDetail(
+    "Overdue Projects",
+    `${reportOverdueProjectsList.length} project${reportOverdueProjectsList.length === 1 ? "" : "s"} past deadline`,
+    projectListHtml(reportOverdueProjectsList)
+  );
+});
+
+document.getElementById("report-stat-due-week").addEventListener("click", () => {
+  openReportDetail(
+    "Due Within 7 Days",
+    `${reportDueSoonTasks.length} task${reportDueSoonTasks.length === 1 ? "" : "s"} coming up`,
+    taskListHtml(reportDueSoonTasks)
+  );
+});
 
 document.getElementById("btn-export-employee-csv").addEventListener("click", () => {
   const rows = reportEmployeeRows.map(r => [
