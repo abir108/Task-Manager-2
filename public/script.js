@@ -152,7 +152,7 @@ navButtons.forEach(btn => {
 });
 
 async function showView(name) {
-  if ((name === "team" || name === "backup" || name === "archived") && !isAdmin()) name = "dashboard";
+  if ((name === "team" || name === "backup" || name === "archived" || name === "report") && !isAdmin()) name = "dashboard";
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById("view-" + name).classList.add("active");
   navButtons.forEach(b => b.classList.toggle("active", b.dataset.view === name));
@@ -160,6 +160,7 @@ async function showView(name) {
   if (name === "projects") await renderProjects();
   if (name === "team") await renderTeam();
   if (name === "archived") await renderArchivedPage();
+  if (name === "report") await renderReportPage();
 }
 
 document.getElementById("btn-back-projects").addEventListener("click", () => showView("projects"));
@@ -1688,6 +1689,205 @@ document.querySelectorAll(".trend-btn").forEach(btn => {
     document.querySelectorAll(".trend-btn").forEach(b => b.classList.toggle("active", b === btn));
     renderTrendChart(dashboardAllTasks, trendRange);
   });
+});
+
+/* ===========================================================
+   REPORTS
+=========================================================== */
+let reportEmployeeRows = [];
+let reportProjectRows = [];
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const todayMid = new Date();
+  todayMid.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr);
+  if (isNaN(target)) return null;
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target - todayMid) / 86400000);
+}
+
+function getUrgency(dateStr, isDone) {
+  if (isDone) return { label: "Completed", cls: "done" };
+  const days = daysUntil(dateStr);
+  if (days === null) return { label: "No deadline", cls: "none" };
+  if (days < 0) return { label: `Overdue ${Math.abs(days)}d`, cls: "overdue" };
+  if (days === 0) return { label: "Due today", cls: "critical" };
+  if (days <= 3) return { label: `${days}d left`, cls: "critical" };
+  if (days <= 14) return { label: `${days}d left`, cls: "high" };
+  if (days <= 30) return { label: `${days}d left`, cls: "medium" };
+  return { label: `${days}d left`, cls: "low" };
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  if (isNaN(d)) return "—";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function downloadCsv(filename, header, rows) {
+  const esc = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const lines = [header, ...rows].map(r => r.map(esc).join(","));
+  const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function renderReportPage() {
+  const [allMembers, allProjects, allTasksRaw] = await Promise.all([
+    api("GET", "/api/members"),
+    api("GET", "/api/projects"),
+    api("GET", "/api/tasks")
+  ]);
+  const activeProjects = allProjects.filter(p => (p.category || "running") !== "archived");
+  const activeProjectIds = new Set(activeProjects.map(p => p.id));
+  const allTasks = allTasksRaw.filter(t => activeProjectIds.has(t.projectId));
+
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 86400000);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+
+  /* ---- Alert stats ---- */
+  const overdueTasks = allTasks.filter(t => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) < 0).length;
+  const overdueProjects = activeProjects.filter(p => p.category !== "completed" && p.deadline && daysUntil(p.deadline) < 0).length;
+  const dueThisWeek = allTasks.filter(t => {
+    if (t.status === "done" || !t.dueDate) return false;
+    const d = daysUntil(t.dueDate);
+    return d !== null && d >= 0 && d <= 7;
+  }).length;
+  const overallDone = allTasks.filter(t => t.status === "done").length;
+  const overallRate = allTasks.length ? Math.round((overallDone / allTasks.length) * 100) : 0;
+
+  document.getElementById("report-overdue-tasks").textContent = overdueTasks;
+  document.getElementById("report-overdue-projects").textContent = overdueProjects;
+  document.getElementById("report-due-week").textContent = dueThisWeek;
+  document.getElementById("report-completion-rate").textContent = overallRate + "%";
+
+  /* ---- Employee section ---- */
+  reportEmployeeRows = allMembers.map(member => {
+    const assigned = allTasks.filter(t => (t.assigneeIds || []).includes(member.id));
+    const projectIds = new Set(assigned.map(t => t.projectId));
+    const done = assigned.filter(t => t.status === "done");
+    const weekCount = done.filter(t => t.completedAt && new Date(t.completedAt) >= weekAgo).length;
+    const monthCount = done.filter(t => t.completedAt && new Date(t.completedAt) >= monthStart).length;
+    const yearCount = done.filter(t => t.completedAt && new Date(t.completedAt) >= yearStart).length;
+    const rate = assigned.length ? Math.round((done.length / assigned.length) * 100) : 0;
+    const upcoming = assigned
+      .filter(t => t.status !== "done" && t.dueDate)
+      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    const nextTask = upcoming[0] || null;
+    return {
+      member,
+      assignedCount: assigned.length,
+      projectCount: projectIds.size,
+      weekCount, monthCount, yearCount,
+      completedCount: done.length,
+      rate,
+      nextDeadline: nextTask ? nextTask.dueDate : null,
+      nextTaskTitle: nextTask ? nextTask.title : null
+    };
+  }).sort((a, b) => b.assignedCount - a.assignedCount);
+
+  const empBody = document.getElementById("report-employee-body");
+  const empEmpty = document.getElementById("report-employee-empty");
+  empBody.innerHTML = "";
+  if (reportEmployeeRows.length === 0) {
+    empEmpty.style.display = "block";
+  } else {
+    empEmpty.style.display = "none";
+    reportEmployeeRows.forEach(r => {
+      const urgency = getUrgency(r.nextDeadline, false);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><div class="report-person">${avatarHtml(r.member)}<span>${escapeHtml(r.member.name)}</span></div></td>
+        <td>${r.assignedCount}</td>
+        <td>${r.projectCount}</td>
+        <td>
+          <div class="report-triple">
+            <div><span class="rt-num">${r.weekCount}</span><span class="rt-lbl">Wk</span></div>
+            <div><span class="rt-num">${r.monthCount}</span><span class="rt-lbl">Mo</span></div>
+            <div><span class="rt-num">${r.yearCount}</span><span class="rt-lbl">Yr</span></div>
+          </div>
+        </td>
+        <td>${r.rate}%</td>
+        <td>${r.nextDeadline
+          ? `<span class="urgency-badge urgency-${urgency.cls}" title="${escapeHtml(r.nextTaskTitle || "")}">${formatDate(r.nextDeadline)} · ${urgency.label}</span>`
+          : `<span class="urgency-badge urgency-none">No upcoming</span>`}</td>
+      `;
+      empBody.appendChild(tr);
+    });
+  }
+
+  /* ---- Project section ---- */
+  reportProjectRows = activeProjects.map(project => {
+    const tks = allTasks.filter(t => t.projectId === project.id);
+    const doneCount = tks.filter(t => t.status === "done").length;
+    const pct = tks.length ? Math.round((doneCount / tks.length) * 100) : 0;
+    const isDone = project.category === "completed";
+    return { project, taskCount: tks.length, doneCount, pct, isDone };
+  }).sort((a, b) => {
+    if (a.isDone !== b.isDone) return a.isDone ? 1 : -1;
+    const av = a.project.deadline ? new Date(a.project.deadline).getTime() : Infinity;
+    const bv = b.project.deadline ? new Date(b.project.deadline).getTime() : Infinity;
+    return av - bv;
+  });
+
+  const projBody = document.getElementById("report-project-body");
+  const projEmpty = document.getElementById("report-project-empty");
+  projBody.innerHTML = "";
+  if (reportProjectRows.length === 0) {
+    projEmpty.style.display = "block";
+  } else {
+    projEmpty.style.display = "none";
+    reportProjectRows.forEach(r => {
+      const urgency = getUrgency(r.project.deadline, r.isDone);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><span class="pname">${escapeHtml(r.project.name)}</span></td>
+        <td>${formatDate(r.project.deadline)}</td>
+        <td><span class="urgency-badge urgency-${urgency.cls}">${urgency.label}</span></td>
+        <td>
+          <div class="report-progress">
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${r.pct}%"></div></div>
+            <span class="report-progress-txt">${r.doneCount}/${r.taskCount} · ${r.pct}%</span>
+          </div>
+        </td>
+      `;
+      projBody.appendChild(tr);
+    });
+  }
+}
+
+document.getElementById("btn-export-employee-csv").addEventListener("click", () => {
+  const rows = reportEmployeeRows.map(r => [
+    r.member.name, r.assignedCount, r.projectCount, r.weekCount, r.monthCount, r.yearCount,
+    r.rate + "%", r.nextDeadline ? formatDate(r.nextDeadline) : "—"
+  ]);
+  downloadCsv(
+    "employee-report.csv",
+    ["Employee", "Tasks Assigned", "Projects", "Completed (Week)", "Completed (Month)", "Completed (Year)", "Completion Rate", "Next Deadline"],
+    rows
+  );
+});
+
+document.getElementById("btn-export-project-csv").addEventListener("click", () => {
+  const rows = reportProjectRows.map(r => [
+    r.project.name, formatDate(r.project.deadline), getUrgency(r.project.deadline, r.isDone).label,
+    `${r.doneCount}/${r.taskCount}`, r.pct + "%"
+  ]);
+  downloadCsv(
+    "project-report.csv",
+    ["Project", "Deadline", "Priority", "Tasks Done", "Completion %"],
+    rows
+  );
 });
 
 /* ---------- Init ---------- */

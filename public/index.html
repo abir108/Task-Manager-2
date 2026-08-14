@@ -46,6 +46,9 @@
       <button class="nav-btn" data-view="team" id="nav-team">
         <span class="icon">◔</span> Team
       </button>
+      <button class="nav-btn admin-only" data-view="report" id="nav-report">
+        <span class="icon">📊</span> Report
+      </button>
       <button class="nav-btn admin-only" data-view="archived" id="nav-archived">
         <span class="icon">🗄</span> Archived
       </button>
@@ -164,6 +167,79 @@
 
       <div id="team-grid" class="team-grid"></div>
       <p id="team-empty" class="empty-hint">No teammates yet. Add someone to give them a login.</p>
+    </section>
+
+    <!-- ===== REPORT VIEW (admin only) ===== -->
+    <section id="view-report" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Reports</h1>
+          <p class="subtitle">Team workload, deadlines, and project health at a glance</p>
+        </div>
+      </header>
+
+      <div class="stat-grid" id="report-alert-grid">
+        <div class="stat-card alert-card" id="report-stat-overdue-tasks">
+          <div class="stat-value" id="report-overdue-tasks">0</div>
+          <div class="stat-label">Overdue tasks</div>
+        </div>
+        <div class="stat-card alert-card" id="report-stat-overdue-projects">
+          <div class="stat-value" id="report-overdue-projects">0</div>
+          <div class="stat-label">Overdue projects</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="report-due-week">0</div>
+          <div class="stat-label">Due within 7 days</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="report-completion-rate">0%</div>
+          <div class="stat-label">Overall completion rate</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head-row">
+          <h2>Employee workload</h2>
+          <button class="btn btn-ghost btn-small" id="btn-export-employee-csv">Export CSV</button>
+        </div>
+        <div class="report-table-wrap">
+          <table class="report-table" id="report-employee-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Tasks assigned</th>
+                <th>Projects</th>
+                <th>Completed (Wk / Mo / Yr)</th>
+                <th>Completion rate</th>
+                <th>Next deadline</th>
+              </tr>
+            </thead>
+            <tbody id="report-employee-body"></tbody>
+          </table>
+        </div>
+        <p id="report-employee-empty" class="empty-hint">No team members yet.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head-row">
+          <h2>Project deadlines &amp; priority</h2>
+          <button class="btn btn-ghost btn-small" id="btn-export-project-csv">Export CSV</button>
+        </div>
+        <div class="report-table-wrap">
+          <table class="report-table" id="report-project-table">
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Deadline</th>
+                <th>Priority</th>
+                <th>Progress</th>
+              </tr>
+            </thead>
+            <tbody id="report-project-body"></tbody>
+          </table>
+        </div>
+        <p id="report-project-empty" class="empty-hint">No active projects yet.</p>
+      </div>
     </section>
 
     <!-- ===== ARCHIVED VIEW (admin only) ===== -->
