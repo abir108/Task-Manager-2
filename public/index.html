@@ -108,15 +108,18 @@
           <div id="category-breakdown" class="category-breakdown"></div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head-row">
-            <h2>Task completion trend</h2>
-            <div class="trend-toggle">
-              <button class="trend-btn active" data-range="weekly">Weekly</button>
-              <button class="trend-btn" data-range="monthly">Monthly</button>
-            </div>
+        <div class="dash-deadline-col">
+          <div class="panel">
+            <h2>Upcoming Deadlines</h2>
+            <div id="dash-upcoming-list" class="report-detail-list"></div>
+            <p id="dash-upcoming-empty" class="empty-hint">No upcoming deadlines.</p>
           </div>
-          <div id="trend-chart" class="trend-chart"></div>
+
+          <div class="panel">
+            <h2>Overdue Projects</h2>
+            <div id="dash-overdue-list" class="report-detail-list"></div>
+            <p id="dash-overdue-empty" class="empty-hint">No overdue projects. Nice work!</p>
+          </div>
         </div>
       </div>
 

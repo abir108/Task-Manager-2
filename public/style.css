@@ -565,6 +565,8 @@ body.role-member #nav-team { display: none; }
   .dash-grid { grid-template-columns: 1fr; }
 }
 
+.dash-deadline-col { display: flex; flex-direction: column; gap: 20px; }
+
 .panel-head-row {
   display: flex;
   align-items: center;
@@ -574,19 +576,6 @@ body.role-member #nav-team { display: none; }
   margin-bottom: 4px;
 }
 .panel-head-row h2 { margin: 0; }
-
-.trend-toggle { display: flex; gap: 4px; background: #f1f2f8; border-radius: 7px; padding: 3px; }
-.trend-btn {
-  border: none;
-  background: none;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  padding: 5px 10px;
-  border-radius: 5px;
-  cursor: pointer;
-}
-.trend-btn.active { background: #fff; color: var(--accent); box-shadow: var(--shadow); }
 
 /* ---------- Report page ---------- */
 #view-report .panel { margin-bottom: 20px; }
@@ -716,39 +705,6 @@ body.role-member #nav-team { display: none; }
 .cat-fill-running { background: var(--accent); }
 .cat-fill-query { background: #e6982f; }
 .cat-fill-completed { background: #14a866; }
-
-.trend-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  height: 160px;
-  margin-top: 20px;
-  padding: 0 4px;
-}
-.trend-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  height: 100%;
-  justify-content: flex-end;
-}
-.trend-bar-wrap {
-  flex: 1;
-  display: flex;
-  align-items: flex-end;
-  width: 100%;
-  justify-content: center;
-}
-.trend-bar {
-  width: 60%;
-  min-height: 3px;
-  background: var(--accent);
-  border-radius: 4px 4px 0 0;
-  transition: height .2s;
-}
-.trend-count { font-size: 11px; font-weight: 700; color: var(--text); margin-top: 6px; }
-.trend-label { font-size: 10px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; }
 
 /* ---------- Projects grid ---------- */
 .projects-grid {

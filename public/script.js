@@ -1564,16 +1564,12 @@ function buildSummaryRow(tasksArr, groupStatuses) {
    DASHBOARD
 =========================================================== */
 
-let dashboardAllTasks = [];
-let trendRange = "weekly";
-
 async function renderDashboard() {
   projects = await api("GET", "/api/projects");
   const allTasksRaw = await api("GET", "/api/tasks");
   const activeProjects = projects.filter(p => (p.category || "running") !== "archived");
   const activeProjectIds = new Set(activeProjects.map(p => p.id));
   const allTasks = allTasksRaw.filter(t => activeProjectIds.has(t.projectId));
-  dashboardAllTasks = allTasks;
 
   document.getElementById("stat-projects").textContent = activeProjects.length;
   if (isAdmin()) {
@@ -1587,7 +1583,15 @@ async function renderDashboard() {
   document.getElementById("stat-done").textContent = pct + "%";
 
   renderCategoryBreakdown(activeProjects);
-  renderTrendChart(allTasks, trendRange);
+
+  const withDeadline = activeProjects
+    .filter(p => p.category !== "completed" && p.deadline)
+    .map(project => ({ project, tasks: allTasks.filter(t => t.projectId === project.id) }))
+    .sort((a, b) => new Date(a.project.deadline) - new Date(b.project.deadline));
+  const upcomingProjectsList = withDeadline.filter(r => daysUntil(r.project.deadline) >= 0);
+  const overdueProjectsList = withDeadline.filter(r => daysUntil(r.project.deadline) < 0);
+  renderDashDeadlineSection("dash-upcoming-list", "dash-upcoming-empty", upcomingProjectsList);
+  renderDashDeadlineSection("dash-overdue-list", "dash-overdue-empty", overdueProjectsList);
 
   const list = document.getElementById("progress-list");
   list.innerHTML = "";
@@ -1641,55 +1645,18 @@ function renderCategoryBreakdown(projectsArr) {
   });
 }
 
-function bucketTasksByPeriod(allTasks, range) {
-  const now = new Date();
-  const buckets = [];
-  if (range === "weekly") {
-    for (let i = 7; i >= 0; i--) {
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 7);
-      const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 6);
-      buckets.push({ start, end, label: start.toLocaleDateString(undefined, { month: "short", day: "numeric" }), count: 0 });
-    }
-  } else {
-    for (let i = 5; i >= 0; i--) {
-      const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-      buckets.push({ start, end, label: start.toLocaleDateString(undefined, { month: "short" }), count: 0 });
-    }
+function renderDashDeadlineSection(listId, emptyId, rows) {
+  const container = document.getElementById(listId);
+  const empty = document.getElementById(emptyId);
+  if (rows.length === 0) {
+    container.innerHTML = "";
+    empty.style.display = "block";
+    return;
   }
-  allTasks.forEach(t => {
-    if (!t.completedAt) return;
-    const d = new Date(t.completedAt);
-    const bucket = buckets.find(b => d >= b.start && d <= new Date(b.end.getFullYear(), b.end.getMonth(), b.end.getDate(), 23, 59, 59, 999));
-    if (bucket) bucket.count++;
-  });
-  return buckets;
+  empty.style.display = "none";
+  container.innerHTML = projectListHtml(rows);
+  attachDetailRowNav(container);
 }
-
-function renderTrendChart(allTasks, range) {
-  const buckets = bucketTasksByPeriod(allTasks, range);
-  const max = Math.max(1, ...buckets.map(b => b.count));
-  const container = document.getElementById("trend-chart");
-  container.innerHTML = "";
-  buckets.forEach(b => {
-    const col = document.createElement("div");
-    col.className = "trend-col";
-    col.innerHTML = `
-      <div class="trend-bar-wrap"><div class="trend-bar" style="height:${(b.count / max) * 100}%" title="${b.count} completed"></div></div>
-      <div class="trend-count">${b.count}</div>
-      <div class="trend-label">${b.label}</div>
-    `;
-    container.appendChild(col);
-  });
-}
-
-document.querySelectorAll(".trend-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    trendRange = btn.dataset.range;
-    document.querySelectorAll(".trend-btn").forEach(b => b.classList.toggle("active", b === btn));
-    renderTrendChart(dashboardAllTasks, trendRange);
-  });
-});
 
 /* ===========================================================
    REPORTS
@@ -1758,16 +1725,16 @@ function openReportDetail(title, subtitle, bodyHtml) {
   document.getElementById("report-detail-title").textContent = title;
   document.getElementById("report-detail-subtitle").textContent = subtitle || "";
   document.getElementById("report-detail-body").innerHTML = bodyHtml;
-  attachDetailRowNav(document.getElementById("report-detail-body"));
+  attachDetailRowNav(document.getElementById("report-detail-body"), "modal-report-detail");
   openModal("modal-report-detail");
 }
 
-function attachDetailRowNav(container) {
+function attachDetailRowNav(container, closeModalId) {
   container.querySelectorAll(".report-detail-row[data-project]").forEach(row => {
     const pid = row.dataset.project;
     if (!pid) return;
     row.addEventListener("click", () => {
-      closeModal("modal-report-detail");
+      if (closeModalId) closeModal(closeModalId);
       openBoard(pid);
     });
   });
