@@ -29,7 +29,6 @@ function emptyStore() {
     projects: [],
     groups: [],
     tasks: [],
-    statuses: DEFAULT_STATUSES.map(s => ({ ...s })),
     categoryLabels: { ...DEFAULT_CATEGORY_LABELS }
   };
 }
@@ -54,7 +53,6 @@ function load() {
   const raw = fs.readFileSync(DATA_FILE, "utf8");
   const store = JSON.parse(raw);
   if (!store.groups) store.groups = [];
-  if (!store.statuses || store.statuses.length === 0) store.statuses = DEFAULT_STATUSES.map(s => ({ ...s }));
   if (!store.members) store.members = [];
   if (!store.projects) store.projects = [];
   if (!store.tasks) store.tasks = [];
@@ -70,6 +68,15 @@ function load() {
       changed = true;
     }
   });
+  // Statuses used to be global (store.statuses); now each group owns its own list.
+  const legacyStatuses = (store.statuses && store.statuses.length) ? store.statuses : DEFAULT_STATUSES;
+  store.groups.forEach(g => {
+    if (!Array.isArray(g.statuses) || g.statuses.length === 0) {
+      g.statuses = legacyStatuses.map(s => ({ ...s }));
+      changed = true;
+    }
+  });
+  if (store.statuses) { delete store.statuses; changed = true; }
   store.tasks.forEach(t => {
     if (!Array.isArray(t.assigneeIds)) {
       t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];
@@ -115,4 +122,4 @@ function recomputeProjectCategory(projectId) {
   }
 }
 
-module.exports = { store, save, uid, recomputeProjectCategory, DEFAULT_CATEGORY_LABELS };
+module.exports = { store, save, uid, recomputeProjectCategory, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES };

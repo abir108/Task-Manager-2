@@ -5,7 +5,6 @@
 const COLORS = ["#5b5ff0", "#ef6a6a", "#f2b94a", "#6fcf97", "#3ec6e0", "#c46be0", "#e08a3e", "#4fbf8b"];
 
 let me = null;
-let statuses = [];
 let team = [];       // {id, name} lite directory, visible to everyone logged in
 let members = [];    // full roster with roles, admin only
 let projects = [];
@@ -101,7 +100,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 
 document.getElementById("btn-logout").addEventListener("click", async () => {
   await api("POST", "/api/logout").catch(() => {});
-  me = null; statuses = []; team = []; members = []; projects = []; groups = []; tasks = [];
+  me = null; team = []; members = []; projects = []; groups = []; tasks = [];
   currentBoardProjectId = null;
   document.getElementById("login-name").value = "";
   document.getElementById("login-pin").value = "";
@@ -126,7 +125,6 @@ async function afterLogin() {
     : "Projects you've been assigned to";
   document.getElementById("stat-members-card").style.display = isAdmin() ? "" : "none";
   showApp();
-  statuses = await api("GET", "/api/statuses");
   team = await api("GET", "/api/team-lite");
   categoryLabels = await api("GET", "/api/category-labels");
   await showView("dashboard");
@@ -578,7 +576,6 @@ document.getElementById("input-restore-file").addEventListener("change", async (
     await api("POST", "/api/restore", data);
     statusEl.textContent = "Backup restored successfully.";
     statusEl.classList.add("success");
-    statuses = await api("GET", "/api/statuses");
     team = await api("GET", "/api/team-lite");
     categoryLabels = await api("GET", "/api/category-labels");
     projects = await api("GET", "/api/projects");
@@ -700,9 +697,9 @@ function showPopover(anchor, fillFn) {
 }
 
 /* ---------- Status picker (member: pick only) ---------- */
-function renderStatusPicker(pop, task) {
+function renderStatusPicker(pop, task, group) {
   pop.innerHTML = "";
-  statuses.forEach(s => {
+  group.statuses.forEach(s => {
     const row = document.createElement("div");
     row.className = "status-picker-item";
     row.innerHTML = `<span class="swatch" style="background:${s.color}"></span>${escapeHtml(s.label)}`;
@@ -717,11 +714,11 @@ function renderStatusPicker(pop, task) {
   });
 }
 
-/* ---------- Status editor (admin: add/rename/recolor/delete) ---------- */
-function renderStatusEditor(pop, task) {
+/* ---------- Status editor (admin: pick, recolor, rename via pencil, add/delete) ---------- */
+function renderStatusEditor(pop, task, group) {
   pop.innerHTML = "";
 
-  statuses.forEach(s => {
+  group.statuses.forEach(s => {
     const row = document.createElement("div");
     row.className = "status-edit-row";
 
@@ -736,22 +733,37 @@ function renderStatusEditor(pop, task) {
       renderBoard();
     });
     swatch.addEventListener("change", async () => {
-      try { await api("PATCH", `/api/statuses/${s.id}`, { color: s.color }); } catch (err) { alert(err.message); }
+      try { await api("PATCH", `/api/groups/${group.id}/statuses/${s.id}`, { color: s.color }); } catch (err) { alert(err.message); }
     });
 
-    const label = document.createElement("input");
-    label.type = "text";
-    label.className = "status-label-input";
-    label.value = s.label;
-    label.addEventListener("click", e => e.stopPropagation());
-    label.addEventListener("input", () => {
-      s.label = label.value;
-      renderBoard();
+    const label = document.createElement("span");
+    label.className = "status-label-text";
+    label.textContent = s.label;
+
+    const renameBtn = document.createElement("button");
+    renameBtn.className = "status-edit-rename";
+    renameBtn.innerHTML = "&#9998;";
+    renameBtn.title = "Rename";
+    renameBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "status-label-input";
+      input.value = s.label;
+      label.replaceWith(input);
+      input.focus();
+      input.select();
+      const commit = async () => {
+        const v = input.value.trim();
+        s.label = v || s.label;
+        try { await api("PATCH", `/api/groups/${group.id}/statuses/${s.id}`, { label: s.label }); } catch (err) { alert(err.message); }
+        renderStatusEditor(pop, task, group);
+        renderBoard();
+      };
+      input.addEventListener("click", ev => ev.stopPropagation());
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", ev => { if (ev.key === "Enter") input.blur(); });
     });
-    label.addEventListener("blur", async () => {
-      try { await api("PATCH", `/api/statuses/${s.id}`, { label: s.label }); } catch (err) { alert(err.message); }
-    });
-    label.addEventListener("keydown", e => { if (e.key === "Enter") label.blur(); });
 
     const delBtn = document.createElement("button");
     delBtn.className = "status-edit-del";
@@ -759,13 +771,13 @@ function renderStatusEditor(pop, task) {
     delBtn.title = "Remove status";
     delBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (statuses.length <= 1) { alert("You need at least one status."); return; }
+      if (group.statuses.length <= 1) { alert("You need at least one status."); return; }
       try {
-        await api("DELETE", `/api/statuses/${s.id}`);
-        statuses = await api("GET", "/api/statuses");
+        await api("DELETE", `/api/groups/${group.id}/statuses/${s.id}`);
+        await loadAndRenderBoard();
+        group = groups.find(g => g.id === group.id) || group;
       } catch (err) { alert(err.message); return; }
-      renderStatusEditor(pop, task);
-      renderBoard();
+      renderStatusEditor(pop, task, group);
     });
 
     row.addEventListener("click", async () => {
@@ -776,7 +788,7 @@ function renderStatusEditor(pop, task) {
       await loadAndRenderBoard();
     });
 
-    row.append(swatch, label, delBtn);
+    row.append(swatch, label, renameBtn, delBtn);
     pop.appendChild(row);
   });
 
@@ -786,13 +798,11 @@ function renderStatusEditor(pop, task) {
   addRow.addEventListener("click", async (e) => {
     e.stopPropagation();
     try {
-      const created = await api("POST", "/api/statuses", { label: "New Status", color: "#579bfc" });
-      statuses.push(created);
+      const created = await api("POST", `/api/groups/${group.id}/statuses`, { label: "New Status", color: "#579bfc" });
+      group.statuses.push(created);
     } catch (err) { alert(err.message); return; }
-    renderStatusEditor(pop, task);
-    const rows = pop.querySelectorAll(".status-edit-row");
-    const newLabel = rows.length ? rows[rows.length - 1].querySelector(".status-label-input") : null;
-    if (newLabel) { newLabel.focus(); newLabel.select(); }
+    renderStatusEditor(pop, task, group);
+    renderBoard();
   });
   pop.appendChild(addRow);
 }
@@ -926,10 +936,10 @@ function buildGroupTable(group) {
   const tbody = document.createElement("tbody");
 
   topTasks.forEach(task => {
-    tbody.appendChild(buildTaskRow(task, project, groupTasks, false));
+    tbody.appendChild(buildTaskRow(task, project, groupTasks, false, group));
     const subitems = groupTasks.filter(t => t.parentId === task.id);
     if (expandedTasks.has(task.id)) {
-      subitems.forEach(sub => tbody.appendChild(buildTaskRow(sub, project, groupTasks, true)));
+      subitems.forEach(sub => tbody.appendChild(buildTaskRow(sub, project, groupTasks, true, group)));
       if (isAdmin()) tbody.appendChild(buildAddSubitemRow(task, group));
     }
   });
@@ -956,7 +966,7 @@ function buildGroupTable(group) {
     wrap.appendChild(addRow);
   }
 
-  wrap.appendChild(buildSummaryRow(groupTasks));
+  wrap.appendChild(buildSummaryRow(groupTasks, group.statuses));
 
   if (groupTasks.length === 0) {
     const hint = document.createElement("p");
@@ -969,14 +979,14 @@ function buildGroupTable(group) {
   return wrap;
 }
 
-function buildTaskRow(task, project, groupTasks, isSub) {
+function buildTaskRow(task, project, groupTasks, isSub, group) {
   const tr = document.createElement("tr");
   tr.dataset.taskId = task.id;
   if (isSub) tr.classList.add("sub-row");
 
   const assigneeIds = task.assigneeIds || [];
   const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
-  const statusDef = statuses.find(s => s.id === task.status) || statuses[0];
+  const statusDef = group.statuses.find(s => s.id === task.status) || group.statuses[0];
 
   const tdTask = document.createElement("td");
   tdTask.className = "cell-task";
@@ -1095,9 +1105,9 @@ function buildTaskRow(task, project, groupTasks, isSub) {
       showPopover(statusPill, (pop) => {
         if (isAdmin()) {
           pop.classList.add("status-editor");
-          renderStatusEditor(pop, task);
+          renderStatusEditor(pop, task, group);
         } else {
-          renderStatusPicker(pop, task);
+          renderStatusPicker(pop, task, group);
         }
       });
     });
@@ -1248,7 +1258,7 @@ function formatDate(str) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function buildSummaryRow(tasksArr) {
+function buildSummaryRow(tasksArr, groupStatuses) {
   const row = document.createElement("div");
   row.className = "summary-row";
   row.innerHTML = `
@@ -1264,8 +1274,8 @@ function buildSummaryRow(tasksArr) {
   if (tasksArr.length === 0) {
     bar.style.background = "#edeef7";
   } else {
-    statuses.forEach(s => {
-      const count = tasksArr.filter(t => (statuses.find(x => x.id === t.status) || statuses[0]).id === s.id).length;
+    groupStatuses.forEach(s => {
+      const count = tasksArr.filter(t => (groupStatuses.find(x => x.id === t.status) || groupStatuses[0]).id === s.id).length;
       if (!count) return;
       const seg = document.createElement("span");
       seg.style.width = ((count / tasksArr.length) * 100) + "%";

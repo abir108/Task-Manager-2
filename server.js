@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
-const { store, save, uid, recomputeProjectCategory } = require("./db");
+const { store, save, uid, recomputeProjectCategory, DEFAULT_STATUSES } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 8790;
@@ -232,7 +232,7 @@ app.post("/api/projects", requireAdmin, async (req, res) => {
     createdAt: Date.now()
   };
   store.projects.push(project);
-  const group = { id: uid(), projectId: project.id, name: "Tasks", createdAt: Date.now() };
+  const group = { id: uid(), projectId: project.id, name: "Tasks", statuses: DEFAULT_STATUSES.map(s => ({ ...s })), createdAt: Date.now() };
   store.groups.push(group);
   await save();
   res.status(201).json(project);
@@ -285,7 +285,7 @@ app.post("/api/groups", requireAdmin, async (req, res) => {
   if (!project) return res.status(404).json({ error: "Project not found" });
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "Group name is required" });
-  const group = { id: uid(), projectId: project.id, name, createdAt: Date.now() };
+  const group = { id: uid(), projectId: project.id, name, statuses: DEFAULT_STATUSES.map(s => ({ ...s })), createdAt: Date.now() };
   store.groups.push(group);
   await save();
   res.status(201).json(group);
@@ -313,7 +313,13 @@ app.post("/api/groups/:id/duplicate", requireAdmin, async (req, res) => {
   const group = store.groups.find(g => g.id === req.params.id);
   if (!group) return res.status(404).json({ error: "Not found" });
 
-  const newGroup = { id: uid(), projectId: group.projectId, name: group.name + " (Copy)", createdAt: Date.now() };
+  const newGroup = {
+    id: uid(),
+    projectId: group.projectId,
+    name: group.name + " (Copy)",
+    statuses: (group.statuses || DEFAULT_STATUSES).map(s => ({ ...s })),
+    createdAt: Date.now()
+  };
   const originalTasks = store.tasks.filter(t => t.groupId === group.id);
   const idMap = new Map();
   originalTasks.forEach(t => idMap.set(t.id, uid()));
@@ -344,10 +350,11 @@ app.post("/api/groups/:id/send-query", requireAdmin, async (req, res) => {
     parentId: null,
     title: "Send Query",
     assigneeIds: [],
-    status: store.statuses[0].id,
+    status: group.statuses[0].id,
     dueDate: "",
     start: "",
     end: "",
+    completedAt: null,
     createdAt: Date.now()
   };
   store.tasks.push(task);
@@ -391,7 +398,7 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     parentId,
     title,
     assigneeIds: [],
-    status: store.statuses[0].id,
+    status: group.statuses[0].id,
     dueDate: "",
     start: "",
     end: "",
@@ -408,6 +415,7 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
   if (!task) return res.status(404).json({ error: "Not found" });
   const project = store.projects.find(p => p.id === task.projectId);
   if (!project || !projectVisible(project, req.member)) return res.status(403).json({ error: "Not assigned to this project" });
+  const group = store.groups.find(g => g.id === task.groupId);
 
   let statusChanged = false;
 
@@ -421,7 +429,7 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
       task.assigneeIds = req.body.assigneeIds.filter(id => validIds.has(id));
     }
     if (req.body.status !== undefined) {
-      if (!store.statuses.some(s => s.id === req.body.status)) {
+      if (!group || !group.statuses.some(s => s.id === req.body.status)) {
         return res.status(400).json({ error: "Unknown status" });
       }
       task.status = req.body.status;
@@ -435,7 +443,7 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
     if (!(task.assigneeIds || []).includes(req.member.id)) {
       return res.status(403).json({ error: "This task is not assigned to you" });
     }
-    if (!store.statuses.some(s => s.id === req.body.status)) {
+    if (!group || !group.statuses.some(s => s.id === req.body.status)) {
       return res.status(400).json({ error: "Unknown status" });
     }
     task.status = req.body.status;
@@ -459,22 +467,30 @@ app.delete("/api/tasks/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-/* ---------- Statuses ---------- */
-app.get("/api/statuses", requireAuth, (req, res) => {
-  res.json(store.statuses);
-});
+/* ---------- Statuses (per group) ---------- */
+function loadGroupOr403(req, res) {
+  const group = store.groups.find(g => g.id === req.params.groupId);
+  if (!group) { res.status(404).json({ error: "Group not found" }); return null; }
+  const project = store.projects.find(p => p.id === group.projectId);
+  if (!project || !projectVisible(project, req.member)) { res.status(403).json({ error: "Not assigned to this project" }); return null; }
+  return group;
+}
 
-app.post("/api/statuses", requireAdmin, async (req, res) => {
+app.post("/api/groups/:groupId/statuses", requireAdmin, async (req, res) => {
+  const group = loadGroupOr403(req, res);
+  if (!group) return;
   const label = String(req.body.label || "New Status").trim();
   const color = String(req.body.color || "#579bfc");
   const status = { id: uid(), label, color };
-  store.statuses.push(status);
+  group.statuses.push(status);
   await save();
   res.status(201).json(status);
 });
 
-app.patch("/api/statuses/:id", requireAdmin, async (req, res) => {
-  const status = store.statuses.find(s => s.id === req.params.id);
+app.patch("/api/groups/:groupId/statuses/:id", requireAdmin, async (req, res) => {
+  const group = loadGroupOr403(req, res);
+  if (!group) return;
+  const status = group.statuses.find(s => s.id === req.params.id);
   if (!status) return res.status(404).json({ error: "Not found" });
   if (req.body.label !== undefined) status.label = String(req.body.label).trim() || status.label;
   if (req.body.color !== undefined) status.color = String(req.body.color);
@@ -482,9 +498,11 @@ app.patch("/api/statuses/:id", requireAdmin, async (req, res) => {
   res.json(status);
 });
 
-app.delete("/api/statuses/:id", requireAdmin, async (req, res) => {
-  if (store.statuses.length <= 1) return res.status(400).json({ error: "At least one status must remain" });
-  store.statuses = store.statuses.filter(s => s.id !== req.params.id);
+app.delete("/api/groups/:groupId/statuses/:id", requireAdmin, async (req, res) => {
+  const group = loadGroupOr403(req, res);
+  if (!group) return;
+  if (group.statuses.length <= 1) return res.status(400).json({ error: "At least one status must remain" });
+  group.statuses = group.statuses.filter(s => s.id !== req.params.id);
   await save();
   res.json({ ok: true });
 });
@@ -499,14 +517,11 @@ app.get("/api/backup", requireAdmin, (req, res) => {
 
 app.post("/api/restore", requireAdmin, async (req, res) => {
   const incoming = req.body;
-  const requiredArrays = ["members", "projects", "groups", "tasks", "statuses"];
+  const requiredArrays = ["members", "projects", "groups", "tasks"];
   const isValid = incoming && typeof incoming === "object" &&
     requiredArrays.every(key => Array.isArray(incoming[key]));
   if (!isValid) {
-    return res.status(400).json({ error: "That file doesn't look like a valid WorkFlow backup" });
-  }
-  if (incoming.statuses.length === 0) {
-    return res.status(400).json({ error: "Backup must include at least one status" });
+    return res.status(400).json({ error: "That file doesn't look like a valid backup" });
   }
   if (!incoming.members.some(m => m.role === "admin")) {
     return res.status(400).json({ error: "Backup must include at least one admin account" });
@@ -518,12 +533,19 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
   incoming.tasks.forEach(t => {
     if (!Array.isArray(t.assigneeIds)) t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];
   });
+  // Older backups had a single global status list; migrate it onto each group.
+  const legacyStatuses = (Array.isArray(incoming.statuses) && incoming.statuses.length) ? incoming.statuses : DEFAULT_STATUSES;
+  incoming.groups.forEach(g => {
+    if (!Array.isArray(g.statuses) || g.statuses.length === 0) {
+      g.statuses = legacyStatuses.map(s => ({ ...s }));
+    }
+  });
 
   store.members = incoming.members;
   store.projects = incoming.projects;
   store.groups = incoming.groups;
   store.tasks = incoming.tasks;
-  store.statuses = incoming.statuses;
+  delete store.statuses;
   if (incoming.categoryLabels && typeof incoming.categoryLabels === "object") {
     store.categoryLabels = incoming.categoryLabels;
   }

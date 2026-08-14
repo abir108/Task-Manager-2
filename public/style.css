@@ -947,6 +947,13 @@ body.role-member #nav-team { display: none; }
 .status-color-input::-webkit-color-swatch { border: none; border-radius: 50%; }
 .status-color-input::-moz-color-swatch { border: none; border-radius: 50%; }
 
+.status-label-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  padding: 4px 2px;
+}
+
 .status-label-input {
   flex: 1;
   border: none;
@@ -959,16 +966,20 @@ body.role-member #nav-team { display: none; }
 }
 .status-label-input:focus { background: #fff; box-shadow: 0 0 0 1px var(--accent); outline: none; }
 
+.status-edit-rename,
 .status-edit-del {
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: 13px;
   cursor: pointer;
   opacity: 0;
   flex-shrink: 0;
 }
+.status-edit-del { font-size: 15px; }
+.status-edit-row:hover .status-edit-rename,
 .status-edit-row:hover .status-edit-del { opacity: 1; }
+.status-edit-rename:hover { color: var(--accent); }
 .status-edit-del:hover { color: var(--high); }
 
 .status-edit-add {
