@@ -343,6 +343,7 @@ app.post("/api/groups/:id/send-query", requireAdmin, async (req, res) => {
   const project = store.projects.find(p => p.id === group.projectId);
   if (!project) return res.status(404).json({ error: "Project not found" });
 
+  const topCount = store.tasks.filter(t => t.groupId === group.id && !t.parentId).length;
   const task = {
     id: uid(),
     projectId: project.id,
@@ -355,25 +356,28 @@ app.post("/api/groups/:id/send-query", requireAdmin, async (req, res) => {
     start: "",
     end: "",
     completedAt: null,
+    isQueryTrigger: true,
+    order: topCount,
     createdAt: Date.now()
   };
   store.tasks.push(task);
-  project.category = "query";
   await save();
   res.status(201).json({ task, project });
 });
 
 /* ---------- Tasks ---------- */
+const byOrder = (a, b) => (a.order || 0) - (b.order || 0);
+
 app.get("/api/tasks", requireAuth, (req, res) => {
   if (!req.query.projectId) {
     const visibleIds = new Set(
       store.projects.filter(p => projectVisible(p, req.member)).map(p => p.id)
     );
-    return res.json(store.tasks.filter(t => visibleIds.has(t.projectId)));
+    return res.json(store.tasks.filter(t => visibleIds.has(t.projectId)).sort(byOrder));
   }
   const project = loadProjectOr403(req, res);
   if (!project) return;
-  res.json(store.tasks.filter(t => t.projectId === project.id));
+  res.json(store.tasks.filter(t => t.projectId === project.id).sort(byOrder));
 });
 
 app.post("/api/tasks", requireAdmin, async (req, res) => {
@@ -391,6 +395,7 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     parentId = parent.id;
   }
 
+  const siblingCount = store.tasks.filter(t => t.groupId === group.id && t.parentId === parentId).length;
   const task = {
     id: uid(),
     projectId: project.id,
@@ -403,11 +408,30 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     start: "",
     end: "",
     completedAt: null,
+    order: siblingCount,
     createdAt: Date.now()
   };
   store.tasks.push(task);
   await save();
   res.status(201).json(task);
+});
+
+app.post("/api/tasks/reorder", requireAdmin, async (req, res) => {
+  const taskIds = req.body.taskIds;
+  if (!Array.isArray(taskIds) || taskIds.length === 0) {
+    return res.status(400).json({ error: "taskIds must be a non-empty array" });
+  }
+  const involved = taskIds.map(id => store.tasks.find(t => t.id === id));
+  if (involved.some(t => !t)) return res.status(404).json({ error: "One or more tasks not found" });
+  const { groupId, parentId } = involved[0];
+  if (!involved.every(t => t.groupId === groupId && t.parentId === parentId)) {
+    return res.status(400).json({ error: "All tasks must be siblings in the same group" });
+  }
+  taskIds.forEach((id, index) => {
+    store.tasks.find(t => t.id === id).order = index;
+  });
+  await save();
+  res.json({ ok: true });
 });
 
 app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
@@ -452,6 +476,9 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
 
   if (statusChanged) {
     task.completedAt = task.status === "done" ? Date.now() : null;
+    if (task.isQueryTrigger && task.status === "done") {
+      project.category = "query";
+    }
     recomputeProjectCategory(task.projectId);
   }
 

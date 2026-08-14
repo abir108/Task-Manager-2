@@ -77,6 +77,7 @@ function load() {
     }
   });
   if (store.statuses) { delete store.statuses; changed = true; }
+  const orderCounters = new Map();
   store.tasks.forEach(t => {
     if (!Array.isArray(t.assigneeIds)) {
       t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];
@@ -84,6 +85,13 @@ function load() {
     }
     if (t.completedAt === undefined) {
       t.completedAt = t.status === "done" ? t.createdAt : null;
+      changed = true;
+    }
+    if (t.order === undefined) {
+      const key = t.groupId + "|" + (t.parentId || "");
+      const next = orderCounters.get(key) || 0;
+      t.order = next;
+      orderCounters.set(key, next + 1);
       changed = true;
     }
   });

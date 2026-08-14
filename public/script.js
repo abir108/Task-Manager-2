@@ -16,6 +16,9 @@ const expandedTasks = new Set();
 const collapsedGroups = new Set();
 const collapsedCategories = new Set();
 const CATEGORY_KEYS = ["running", "query", "completed"];
+let dragTaskId = null;
+let dragGroupId = null;
+let projectsViewMode = localStorage.getItem("projectsViewMode") || "grid";
 
 function isAdmin() { return !!me && me.role === "admin"; }
 
@@ -200,17 +203,66 @@ document.getElementById("btn-save-project").addEventListener("click", async () =
   }
 });
 
+function attachProjectActions(el, project) {
+  el.querySelector('[data-action="board"]').addEventListener("click", (e) => {
+    e.stopPropagation();
+    openBoard(project.id);
+  });
+  if (isAdmin()) {
+    const categorySelect = el.querySelector('[data-action="category"]');
+    if (categorySelect) {
+      categorySelect.addEventListener("click", e => e.stopPropagation());
+      categorySelect.addEventListener("change", async (e) => {
+        try {
+          const updated = await api("PATCH", `/api/projects/${project.id}`, { category: e.target.value });
+          project.category = updated.category;
+          await renderProjects();
+        } catch (err) { alert(err.message); }
+      });
+    }
+    el.querySelector('[data-action="assign"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      openAssignModal(project.id);
+    });
+    el.querySelector('[data-action="delete"]').addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete project "${project.name}" and all its tasks?`)) return;
+      try {
+        await api("DELETE", `/api/projects/${project.id}`);
+        await renderProjects();
+      } catch (err) { alert(err.message); }
+    });
+  }
+  el.addEventListener("click", () => openBoard(project.id));
+}
+
+function setProjectsViewMode(mode) {
+  projectsViewMode = mode;
+  localStorage.setItem("projectsViewMode", mode);
+  document.getElementById("btn-view-grid").classList.toggle("active", mode === "grid");
+  document.getElementById("btn-view-list").classList.toggle("active", mode === "list");
+  document.getElementById("projects-grid").classList.toggle("hidden", mode !== "grid");
+  document.getElementById("projects-list").classList.toggle("active", mode === "list");
+}
+
+document.getElementById("btn-view-grid").addEventListener("click", () => setProjectsViewMode("grid"));
+document.getElementById("btn-view-list").addEventListener("click", () => setProjectsViewMode("list"));
+
 async function renderProjects() {
   projects = await api("GET", "/api/projects");
   const allTasks = await api("GET", "/api/tasks");
 
   const grid = document.getElementById("projects-grid");
+  const list = document.getElementById("projects-list");
   const empty = document.getElementById("projects-empty");
   grid.innerHTML = "";
+  list.innerHTML = "";
+  setProjectsViewMode(projectsViewMode);
 
   if (projects.length === 0) {
     empty.textContent = isAdmin() ? 'No projects yet. Click "New Project" to create your first one.' : "You haven't been assigned to any projects yet.";
     empty.style.display = "block";
+    renderSidebarTree();
     return;
   }
   empty.style.display = "none";
@@ -219,17 +271,22 @@ async function renderProjects() {
     const projTasks = allTasks.filter(t => t.projectId === project.id);
     const done = projTasks.filter(t => t.status === "done").length;
     const pct = projTasks.length ? Math.round((done / projTasks.length) * 100) : 0;
-
-    const card = document.createElement("div");
-    card.className = "project-card";
-
+    const category = project.category || "running";
     const avatars = project.memberIds
       .map(mid => team.find(m => m.id === mid))
       .filter(Boolean)
       .map(m => avatarHtml(m))
       .join("");
+    const categorySelectHtml = isAdmin() ? `<select class="category-select" data-action="category">
+        ${CATEGORY_KEYS.map(k => `<option value="${k}" ${k === category ? "selected" : ""}>${escapeHtml(categoryLabels[k] || k)}</option>`).join("")}
+      </select>` : "";
+    const actionButtonsHtml = `
+      <button data-action="board">Open board</button>
+      ${isAdmin() ? '<button data-action="assign">Assign team</button><button data-action="delete">Delete</button>' : ""}
+    `;
 
-    const category = project.category || "running";
+    const card = document.createElement("div");
+    card.className = "project-card";
     card.innerHTML = `
       <div class="meta-row">
         <h3 style="margin:0">${escapeHtml(project.name)}</h3>
@@ -242,45 +299,26 @@ async function renderProjects() {
       </div>
       <div class="meta-row">
         <div class="avatar-stack">${avatars || '<span style="color:var(--text-muted)">No teammates yet</span>'}</div>
-        ${isAdmin() ? `<select class="category-select" data-action="category">
-          ${CATEGORY_KEYS.map(k => `<option value="${k}" ${k === category ? "selected" : ""}>${escapeHtml(categoryLabels[k] || k)}</option>`).join("")}
-        </select>` : ""}
+        ${categorySelectHtml}
       </div>
-      <div class="card-actions">
-        <button data-action="board">Open board</button>
-        ${isAdmin() ? '<button data-action="assign">Assign team</button><button data-action="delete">Delete</button>' : ""}
-      </div>
+      <div class="card-actions">${actionButtonsHtml}</div>
     `;
-
-    card.querySelector('[data-action="board"]').addEventListener("click", (e) => {
-      e.stopPropagation();
-      openBoard(project.id);
-    });
-    if (isAdmin()) {
-      card.querySelector('[data-action="category"]').addEventListener("click", e => e.stopPropagation());
-      card.querySelector('[data-action="category"]').addEventListener("change", async (e) => {
-        try {
-          const updated = await api("PATCH", `/api/projects/${project.id}`, { category: e.target.value });
-          project.category = updated.category;
-          await renderProjects();
-        } catch (err) { alert(err.message); }
-      });
-      card.querySelector('[data-action="assign"]').addEventListener("click", (e) => {
-        e.stopPropagation();
-        openAssignModal(project.id);
-      });
-      card.querySelector('[data-action="delete"]').addEventListener("click", async (e) => {
-        e.stopPropagation();
-        if (!confirm(`Delete project "${project.name}" and all its tasks?`)) return;
-        try {
-          await api("DELETE", `/api/projects/${project.id}`);
-          await renderProjects();
-        } catch (err) { alert(err.message); }
-      });
-    }
-    card.addEventListener("click", () => openBoard(project.id));
-
+    attachProjectActions(card, project);
     grid.appendChild(card);
+
+    const row = document.createElement("div");
+    row.className = "project-row";
+    row.innerHTML = `
+      <span class="pr-name">${escapeHtml(project.name)}</span>
+      <span class="category-badge ${category}">${escapeHtml(categoryLabels[category] || category)}</span>
+      <span class="pr-meta">${projTasks.length} task${projTasks.length === 1 ? "" : "s"} · ${pct}%</span>
+      <div class="pr-progress"><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%"></div></div></div>
+      <div class="pr-avatars avatar-stack">${avatars}</div>
+      ${categorySelectHtml}
+      <div class="card-actions">${actionButtonsHtml}</div>
+    `;
+    attachProjectActions(row, project);
+    list.appendChild(row);
   });
 
   renderSidebarTree();
@@ -303,6 +341,9 @@ function renderSidebarTree() {
       else collapsedCategories.add(key);
       renderSidebarTree();
     });
+
+    const dot = document.createElement("span");
+    dot.className = "tree-dot " + key;
 
     const chevron = document.createElement("span");
     chevron.className = "tree-chevron" + (collapsedCategories.has(key) ? " collapsed" : "");
@@ -341,8 +382,9 @@ function renderSidebarTree() {
     const countEl = document.createElement("span");
     countEl.className = "tree-count";
     countEl.textContent = catProjects.length;
+    countEl.title = catProjects.length + (catProjects.length === 1 ? " project" : " projects");
 
-    head.append(chevron, nameEl, countEl);
+    head.append(dot, chevron, nameEl, countEl);
     section.appendChild(head);
 
     if (!collapsedCategories.has(key)) {
@@ -432,32 +474,108 @@ document.getElementById("input-member-avatar").addEventListener("change", (e) =>
   e.target.value = "";
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => {
-      const size = 200;
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext("2d");
-      const s = Math.min(img.width, img.height);
-      const sx = (img.width - s) / 2;
-      const sy = (img.height - s) / 2;
-      ctx.drawImage(img, sx, sy, s, s, 0, 0, size, size);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-      pendingAvatarUrl = dataUrl;
-      const preview = document.getElementById("member-avatar-preview");
-      preview.style.background = "";
-      preview.innerHTML = `<img src="${dataUrl}" alt="">`;
-    };
-    img.src = reader.result;
-  };
+  reader.onload = () => openCropModal(reader.result);
   reader.readAsDataURL(file);
 });
 
 document.getElementById("btn-remove-avatar").addEventListener("click", () => {
   pendingAvatarUrl = null;
   resetAvatarPicker(null);
+});
+
+/* ---------- Interactive avatar crop ---------- */
+let cropState = null;
+let cropDragStart = null;
+
+function openCropModal(dataUrl) {
+  const img = new Image();
+  img.onload = () => {
+    const frameSize = 240;
+    const baseScale = frameSize / Math.min(img.naturalWidth, img.naturalHeight);
+    const dispW = img.naturalWidth * baseScale;
+    const dispH = img.naturalHeight * baseScale;
+    cropState = {
+      img, frameSize, baseScale, zoom: 1,
+      offsetX: (frameSize - dispW) / 2,
+      offsetY: (frameSize - dispH) / 2
+    };
+    const cropImg = document.getElementById("crop-image");
+    cropImg.src = dataUrl;
+    cropImg.style.width = dispW + "px";
+    cropImg.style.height = dispH + "px";
+    document.getElementById("crop-zoom").value = 1;
+    applyCropTransform();
+    openModal("modal-crop");
+  };
+  img.src = dataUrl;
+}
+
+function clampCropOffsets() {
+  const dispW = cropState.img.naturalWidth * cropState.baseScale * cropState.zoom;
+  const dispH = cropState.img.naturalHeight * cropState.baseScale * cropState.zoom;
+  const minX = cropState.frameSize - dispW;
+  const minY = cropState.frameSize - dispH;
+  cropState.offsetX = Math.min(0, Math.max(minX, cropState.offsetX));
+  cropState.offsetY = Math.min(0, Math.max(minY, cropState.offsetY));
+}
+
+function applyCropTransform() {
+  document.getElementById("crop-image").style.transform =
+    `translate(${cropState.offsetX}px, ${cropState.offsetY}px)`;
+}
+
+const cropFrame = document.getElementById("crop-frame");
+cropFrame.addEventListener("pointerdown", (e) => {
+  if (!cropState) return;
+  cropDragStart = { x: e.clientX, y: e.clientY, offsetX: cropState.offsetX, offsetY: cropState.offsetY };
+  cropFrame.setPointerCapture(e.pointerId);
+});
+cropFrame.addEventListener("pointermove", (e) => {
+  if (!cropDragStart || !cropState) return;
+  cropState.offsetX = cropDragStart.offsetX + (e.clientX - cropDragStart.x);
+  cropState.offsetY = cropDragStart.offsetY + (e.clientY - cropDragStart.y);
+  clampCropOffsets();
+  applyCropTransform();
+});
+cropFrame.addEventListener("pointerup", () => { cropDragStart = null; });
+cropFrame.addEventListener("pointercancel", () => { cropDragStart = null; });
+
+document.getElementById("crop-zoom").addEventListener("input", (e) => {
+  if (!cropState) return;
+  const oldZoom = cropState.zoom;
+  const newZoom = parseFloat(e.target.value);
+  const cx = cropState.frameSize / 2;
+  const cy = cropState.frameSize / 2;
+  cropState.offsetX = cx - (cx - cropState.offsetX) * (newZoom / oldZoom);
+  cropState.offsetY = cy - (cy - cropState.offsetY) * (newZoom / oldZoom);
+  cropState.zoom = newZoom;
+  const dispW = cropState.img.naturalWidth * cropState.baseScale * cropState.zoom;
+  const dispH = cropState.img.naturalHeight * cropState.baseScale * cropState.zoom;
+  const cropImg = document.getElementById("crop-image");
+  cropImg.style.width = dispW + "px";
+  cropImg.style.height = dispH + "px";
+  clampCropOffsets();
+  applyCropTransform();
+});
+
+document.getElementById("btn-save-crop").addEventListener("click", () => {
+  if (!cropState) return;
+  const { img, frameSize, baseScale, zoom, offsetX, offsetY } = cropState;
+  const effScale = baseScale * zoom;
+  const sourceX = -offsetX / effScale;
+  const sourceY = -offsetY / effScale;
+  const sourceSize = frameSize / effScale;
+  const canvas = document.createElement("canvas");
+  canvas.width = 200;
+  canvas.height = 200;
+  canvas.getContext("2d").drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, 200, 200);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+  pendingAvatarUrl = dataUrl;
+  const preview = document.getElementById("member-avatar-preview");
+  preview.style.background = "";
+  preview.innerHTML = `<img src="${dataUrl}" alt="">`;
+  closeModal("modal-crop");
+  cropState = null;
 });
 
 document.getElementById("btn-new-member").addEventListener("click", () => {
@@ -881,12 +999,12 @@ function buildGroupTable(group) {
     const sendQueryBtn = document.createElement("button");
     sendQueryBtn.className = "group-send-query";
     sendQueryBtn.textContent = "Send Query";
-    sendQueryBtn.title = "Create a Send Query task and move this project to the Query category";
+    sendQueryBtn.title = `Adds a "Send Query" task — marking it Done moves this project to ${categoryLabels.query || "Sent to Query"}`;
     sendQueryBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       try {
         await api("POST", `/api/groups/${group.id}/send-query`);
-        showToast("Query sent — project moved to " + (categoryLabels.query || "Sent to Query"));
+        showToast(`"Send Query" task added — mark it Done to move this project to ${categoryLabels.query || "Sent to Query"}`);
       } catch (err) { alert(err.message); }
       await loadAndRenderBoard();
     });
@@ -990,6 +1108,58 @@ function buildTaskRow(task, project, groupTasks, isSub, group) {
 
   const tdTask = document.createElement("td");
   tdTask.className = "cell-task";
+
+  if (!isSub && isAdmin()) {
+    const handle = document.createElement("span");
+    handle.className = "drag-handle";
+    handle.innerHTML = "&#8942;&#8942;";
+    handle.title = "Drag to reorder";
+    handle.addEventListener("mousedown", () => { tr.draggable = true; });
+    tdTask.appendChild(handle);
+
+    tr.addEventListener("dragstart", (e) => {
+      dragTaskId = task.id;
+      dragGroupId = group.id;
+      tr.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    tr.addEventListener("dragend", () => {
+      tr.draggable = false;
+      tr.classList.remove("dragging");
+      document.querySelectorAll(".drag-over-before,.drag-over-after").forEach(el => el.classList.remove("drag-over-before", "drag-over-after"));
+      dragTaskId = null;
+      dragGroupId = null;
+    });
+    tr.addEventListener("dragover", (e) => {
+      if (dragTaskId === null || dragGroupId !== group.id) return;
+      e.preventDefault();
+      const rect = tr.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height / 2;
+      tr.classList.toggle("drag-over-before", before);
+      tr.classList.toggle("drag-over-after", !before);
+    });
+    tr.addEventListener("dragleave", () => {
+      tr.classList.remove("drag-over-before", "drag-over-after");
+    });
+    tr.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      tr.classList.remove("drag-over-before", "drag-over-after");
+      const draggedId = dragTaskId;
+      if (!draggedId || draggedId === task.id || dragGroupId !== group.id) return;
+      const rect = tr.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height / 2;
+      const topIds = groupTasks.filter(t => !t.parentId).map(t => t.id);
+      const fromIdx = topIds.indexOf(draggedId);
+      if (fromIdx > -1) topIds.splice(fromIdx, 1);
+      let toIdx = topIds.indexOf(task.id);
+      if (!before) toIdx += 1;
+      topIds.splice(toIdx, 0, draggedId);
+      try {
+        await api("POST", "/api/tasks/reorder", { taskIds: topIds });
+      } catch (err) { alert(err.message); }
+      await loadAndRenderBoard();
+    });
+  }
 
   if (!isSub) {
     const isExpanded = expandedTasks.has(task.id);

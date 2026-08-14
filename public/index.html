@@ -127,11 +127,20 @@
           <h1>Projects</h1>
           <p class="subtitle" id="projects-subtitle">Create and manage your projects</p>
         </div>
-        <button class="btn btn-primary admin-only" id="btn-new-project">+ New Project</button>
+        <div class="view-header-actions">
+          <div class="view-toggle">
+            <button class="view-toggle-btn" id="btn-view-grid" title="Grid view">&#9638; Grid</button>
+            <button class="view-toggle-btn" id="btn-view-list" title="List view">&#9776; List</button>
+          </div>
+          <button class="btn btn-primary admin-only" id="btn-new-project">+ New Project</button>
+        </div>
       </header>
 
       <div id="projects-grid" class="projects-grid">
         <!-- project cards injected here -->
+      </div>
+      <div id="projects-list" class="projects-list-view">
+        <!-- project rows injected here -->
       </div>
       <p id="projects-empty" class="empty-hint">No projects yet.</p>
     </section>
@@ -190,6 +199,23 @@
 </div>
 
 <!-- ===== MODALS ===== -->
+
+<div class="modal-overlay" id="modal-crop">
+  <div class="modal crop-modal">
+    <h2>Adjust Photo</h2>
+    <p class="subtitle">Drag to reposition, use the slider to zoom</p>
+    <div class="crop-frame" id="crop-frame">
+      <img id="crop-image" alt="" draggable="false">
+    </div>
+    <label>Zoom
+      <input type="range" id="crop-zoom" min="1" max="3" step="0.01" value="1">
+    </label>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close="modal-crop">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-crop">Use Photo</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="modal-project">
   <div class="modal">
