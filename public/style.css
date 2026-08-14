@@ -56,7 +56,14 @@ body {
   max-width: 100%;
 }
 
-.login-brand { margin-bottom: 6px; }
+.login-brand { margin-bottom: 6px; align-items: center; }
+.login-brand .brand-name {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: var(--text);
+}
+.login-brand .org-name { color: var(--text-muted); }
 
 .login-card .subtitle { margin-bottom: 20px; }
 
@@ -107,7 +114,8 @@ body {
 
 .brand {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   padding: 0 8px 24px;
   color: #fff;
 }
@@ -120,6 +128,14 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+.org-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8d92b3;
+  letter-spacing: .02em;
+  margin-top: 2px;
 }
 
 .nav {
