@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
-const { store, save, uid, recomputeProjectCategory, DEFAULT_STATUSES } = require("./db");
+const { store, save, uid, recomputeProjectCategory, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 8790;
@@ -201,7 +201,7 @@ app.get("/api/category-labels", requireAuth, (req, res) => {
 });
 
 app.patch("/api/category-labels", requireAdmin, async (req, res) => {
-  ["running", "query", "completed"].forEach(key => {
+  PROJECT_CATEGORIES.forEach(key => {
     if (req.body[key] !== undefined) {
       const v = String(req.body[key]).trim();
       if (v) store.categoryLabels[key] = v;
@@ -248,7 +248,7 @@ app.patch("/api/projects/:id", requireAdmin, async (req, res) => {
     const validIds = new Set(store.members.map(m => m.id));
     project.memberIds = req.body.memberIds.filter(id => validIds.has(id));
   }
-  if (req.body.category !== undefined && ["running", "query", "completed"].includes(req.body.category)) {
+  if (req.body.category !== undefined && PROJECT_CATEGORIES.includes(req.body.category)) {
     project.category = req.body.category;
   }
   await save();
@@ -555,7 +555,7 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
   }
 
   incoming.projects.forEach(p => {
-    if (!p.category || !["running", "query", "completed"].includes(p.category)) p.category = "running";
+    if (!p.category || !PROJECT_CATEGORIES.includes(p.category)) p.category = "running";
   });
   incoming.tasks.forEach(t => {
     if (!Array.isArray(t.assigneeIds)) t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];

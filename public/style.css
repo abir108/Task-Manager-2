@@ -18,6 +18,7 @@
   --cat-running: #6f7bf7;
   --cat-query: #f2994a;
   --cat-completed: #1dd75b;
+  --cat-archived: #9298b0;
 }
 
 * { box-sizing: border-box; }
@@ -219,6 +220,7 @@ body {
 .tree-dot.running { background: var(--cat-running); color: var(--cat-running); }
 .tree-dot.query { background: var(--cat-query); color: var(--cat-query); }
 .tree-dot.completed { background: var(--cat-completed); color: var(--cat-completed); }
+.tree-dot.archived { background: var(--cat-archived); color: var(--cat-archived); }
 
 .tree-chevron {
   font-size: 10px;
@@ -704,6 +706,8 @@ body.role-member #nav-team { display: none; }
 }
 
 .project-card .card-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.card-actions button.danger { color: var(--high); border-color: #f6c9c9; }
+.card-actions button.danger:hover { background: var(--high); color: #fff; border-color: var(--high); }
 
 .category-badge {
   font-size: 10px;
@@ -716,6 +720,7 @@ body.role-member #nav-team { display: none; }
 .category-badge.running { background: #eceeff; color: var(--accent); }
 .category-badge.query { background: #fff2df; color: #b06a13; }
 .category-badge.completed { background: #e3faf0; color: #0a8a54; }
+.category-badge.archived { background: #eceef2; color: #5c6178; }
 
 .category-select {
   font-size: 12px;

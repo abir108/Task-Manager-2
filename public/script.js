@@ -16,6 +16,7 @@ const expandedTasks = new Set();
 const collapsedGroups = new Set();
 const collapsedCategories = new Set();
 const CATEGORY_KEYS = ["running", "query", "completed"];
+const ALL_CATEGORY_KEYS = CATEGORY_KEYS.concat(["archived"]);
 let dragTaskId = null;
 let dragGroupId = null;
 let projectsViewMode = localStorage.getItem("projectsViewMode") || "grid";
@@ -225,14 +226,29 @@ function attachProjectActions(el, project) {
       e.stopPropagation();
       openAssignModal(project.id);
     });
-    el.querySelector('[data-action="delete"]').addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!confirm(`Delete project "${project.name}" and all its tasks?`)) return;
-      try {
-        await api("DELETE", `/api/projects/${project.id}`);
-        await renderProjects();
-      } catch (err) { alert(err.message); }
-    });
+    const deleteBtn = el.querySelector('[data-action="delete"]');
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Archive "${project.name}"? It will be moved to ${categoryLabels.archived || "Archived"} and hidden from the main list. You can restore it anytime from there, or delete it permanently.`)) return;
+        try {
+          const updated = await api("PATCH", `/api/projects/${project.id}`, { category: "archived" });
+          project.category = updated.category;
+          await renderProjects();
+        } catch (err) { alert(err.message); }
+      });
+    }
+    const deletePermBtn = el.querySelector('[data-action="delete-permanent"]');
+    if (deletePermBtn) {
+      deletePermBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Permanently delete "${project.name}"? This removes it and all its tasks forever. This cannot be undone.`)) return;
+        try {
+          await api("DELETE", `/api/projects/${project.id}`);
+          await renderProjects();
+        } catch (err) { alert(err.message); }
+      });
+    }
   }
   el.addEventListener("click", () => openBoard(project.id));
 }
@@ -254,13 +270,15 @@ function renderProjectsFilter() {
   container.innerHTML = "";
 
   const options = [{ key: "all", label: "All Projects", dot: null }].concat(
-    CATEGORY_KEYS.map(key => ({ key, label: categoryLabels[key] || key, dot: key }))
+    ALL_CATEGORY_KEYS.map(key => ({ key, label: categoryLabels[key] || key, dot: key }))
   );
 
   options.forEach(opt => {
     const chip = document.createElement("button");
     chip.className = "filter-chip" + (projectsFilter === opt.key ? " active" : "");
-    const count = opt.key === "all" ? projects.length : projects.filter(p => (p.category || "running") === opt.key).length;
+    const count = opt.key === "all"
+      ? projects.filter(p => (p.category || "running") !== "archived").length
+      : projects.filter(p => (p.category || "running") === opt.key).length;
     chip.innerHTML = (opt.dot ? `<span class="dot" style="background:var(--cat-${opt.dot})"></span>` : "") +
       `${escapeHtml(opt.label)} (${count})`;
     chip.addEventListener("click", () => {
@@ -291,7 +309,7 @@ async function renderProjects() {
   }
 
   const filteredProjects = projectsFilter === "all"
-    ? projects
+    ? projects.filter(p => (p.category || "running") !== "archived")
     : projects.filter(p => (p.category || "running") === projectsFilter);
 
   if (filteredProjects.length === 0) {
@@ -313,11 +331,14 @@ async function renderProjects() {
       .map(m => avatarHtml(m))
       .join("");
     const categorySelectHtml = isAdmin() ? `<select class="category-select" data-action="category">
-        ${CATEGORY_KEYS.map(k => `<option value="${k}" ${k === category ? "selected" : ""}>${escapeHtml(categoryLabels[k] || k)}</option>`).join("")}
+        ${ALL_CATEGORY_KEYS.map(k => `<option value="${k}" ${k === category ? "selected" : ""}>${escapeHtml(categoryLabels[k] || k)}</option>`).join("")}
       </select>` : "";
+    const deleteBtnHtml = category === "archived"
+      ? '<button data-action="delete-permanent" class="danger">Delete Permanently</button>'
+      : '<button data-action="delete">Delete</button>';
     const actionButtonsHtml = `
       <button data-action="board">Open board</button>
-      ${isAdmin() ? '<button data-action="assign">Assign team</button><button data-action="delete">Delete</button>' : ""}
+      ${isAdmin() ? `<button data-action="assign">Assign team</button>${deleteBtnHtml}` : ""}
     `;
 
     const card = document.createElement("div");
@@ -364,7 +385,7 @@ function renderSidebarTree() {
   const container = document.getElementById("sidebar-tree");
   container.innerHTML = "";
 
-  CATEGORY_KEYS.forEach(key => {
+  ALL_CATEGORY_KEYS.forEach(key => {
     const catProjects = projects.filter(p => (p.category || "running") === key);
     const section = document.createElement("div");
     section.className = "tree-category";
@@ -1506,10 +1527,13 @@ let trendRange = "weekly";
 
 async function renderDashboard() {
   projects = await api("GET", "/api/projects");
-  const allTasks = await api("GET", "/api/tasks");
+  const allTasksRaw = await api("GET", "/api/tasks");
+  const activeProjects = projects.filter(p => (p.category || "running") !== "archived");
+  const activeProjectIds = new Set(activeProjects.map(p => p.id));
+  const allTasks = allTasksRaw.filter(t => activeProjectIds.has(t.projectId));
   dashboardAllTasks = allTasks;
 
-  document.getElementById("stat-projects").textContent = projects.length;
+  document.getElementById("stat-projects").textContent = activeProjects.length;
   if (isAdmin()) {
     const allMembers = await api("GET", "/api/members");
     document.getElementById("stat-members").textContent = allMembers.length;
@@ -1520,18 +1544,18 @@ async function renderDashboard() {
   const pct = allTasks.length ? Math.round((done / allTasks.length) * 100) : 0;
   document.getElementById("stat-done").textContent = pct + "%";
 
-  renderCategoryBreakdown(projects);
+  renderCategoryBreakdown(activeProjects);
   renderTrendChart(allTasks, trendRange);
 
   const list = document.getElementById("progress-list");
   list.innerHTML = "";
 
-  if (projects.length === 0) {
+  if (activeProjects.length === 0) {
     list.innerHTML = `<p class="empty-hint">${isAdmin() ? "No projects yet. Create one from the Projects tab." : "You haven't been assigned to any projects yet."}</p>`;
     return;
   }
 
-  projects.forEach(project => {
+  activeProjects.forEach(project => {
     const tks = allTasks.filter(t => t.projectId === project.id);
     const doneCount = tks.filter(t => t.status === "done").length;
     const pctP = tks.length ? Math.round((doneCount / tks.length) * 100) : 0;

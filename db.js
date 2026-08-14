@@ -13,10 +13,13 @@ const DEFAULT_STATUSES = [
   { id: "done",        label: "Done", color: "#00c875" }
 ];
 
+const PROJECT_CATEGORIES = ["running", "query", "completed", "archived"];
+
 const DEFAULT_CATEGORY_LABELS = {
   running: "Running Projects",
   query: "Sent to Query",
-  completed: "Completed Projects"
+  completed: "Completed Projects",
+  archived: "Archived"
 };
 
 function uid() {
@@ -57,13 +60,13 @@ function load() {
   if (!store.projects) store.projects = [];
   if (!store.tasks) store.tasks = [];
   if (!store.categoryLabels) store.categoryLabels = { ...DEFAULT_CATEGORY_LABELS };
-  ["running", "query", "completed"].forEach(key => {
+  PROJECT_CATEGORIES.forEach(key => {
     if (!store.categoryLabels[key]) store.categoryLabels[key] = DEFAULT_CATEGORY_LABELS[key];
   });
 
   let changed = false;
   store.projects.forEach(p => {
-    if (!p.category || !["running", "query", "completed"].includes(p.category)) {
+    if (!p.category || !PROJECT_CATEGORIES.includes(p.category)) {
       p.category = "running";
       changed = true;
     }
@@ -120,6 +123,7 @@ function save() {
 function recomputeProjectCategory(projectId) {
   const project = store.projects.find(p => p.id === projectId);
   if (!project) return;
+  if (project.category === "archived") return;
   const tasks = store.tasks.filter(t => t.projectId === projectId);
   if (tasks.length === 0) return;
   const allDone = tasks.every(t => t.status === "done");
@@ -130,4 +134,4 @@ function recomputeProjectCategory(projectId) {
   }
 }
 
-module.exports = { store, save, uid, recomputeProjectCategory, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES };
+module.exports = { store, save, uid, recomputeProjectCategory, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
