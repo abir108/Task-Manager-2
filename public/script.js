@@ -4,6 +4,10 @@
 
 const COLORS = ["#5b5ff0", "#ef6a6a", "#f2b94a", "#6fcf97", "#3ec6e0", "#c46be0", "#e08a3e", "#4fbf8b"];
 
+/* Inline SVG icons (not emoji) so they render consistently across browsers/OSes */
+const ICON_CHAT = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
+const ICON_PAPERCLIP = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>`;
+
 let me = null;
 let team = [];       // {id, name} lite directory, visible to everyone logged in
 let members = [];    // full roster with roles, admin only
@@ -1313,7 +1317,7 @@ function buildTaskRow(task, project, groupTasks, isSub, group) {
   noteBtn.type = "button";
   noteBtn.className = "note-btn" + (noteCount > 0 ? " has-notes" : "");
   noteBtn.title = "Updates";
-  noteBtn.innerHTML = `💬${noteCount > 0 ? `<span class="note-count">${noteCount}</span>` : ""}`;
+  noteBtn.innerHTML = `${ICON_CHAT}${noteCount > 0 ? `<span class="note-count">${noteCount}</span>` : ""}`;
   noteBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     openNotesModal(task);
@@ -1544,7 +1548,7 @@ function renderNotesList(taskId) {
     const canDelete = isAdmin() || (!!me && n.authorId === me.id);
     const attachmentsHtml = (n.attachments || []).map(a => `
       <a class="note-attachment" href="/api/notes/${n.id}/attachments/${a.id}" target="_blank" rel="noopener">
-        📎 ${escapeHtml(a.originalName)} <span class="note-att-size">(${formatFileSize(a.size)})</span>
+        ${ICON_PAPERCLIP} ${escapeHtml(a.originalName)} <span class="note-att-size">(${formatFileSize(a.size)})</span>
       </a>
     `).join("");
     return `
