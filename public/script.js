@@ -14,6 +14,7 @@ let members = [];    // full roster with roles, admin only
 let projects = [];
 let groups = [];
 let tasks = [];
+let folders = [];
 let categoryLabels = { running: "Running Projects", query: "Sent to Query", completed: "Completed Projects" };
 let currentBoardProjectId = null;
 let boardNotes = [];
@@ -21,13 +22,39 @@ let notesModalTaskId = null;
 const expandedTasks = new Set();
 const collapsedGroups = new Set();
 const collapsedCategories = new Set();
+const collapsedFolders = new Set();
 const CATEGORY_KEYS = ["running", "query", "completed"];
 let dragTaskId = null;
 let dragGroupId = null;
+let dragGroupReorderId = null;
+let draggedProjectId = null;
 let projectsViewMode = localStorage.getItem("projectsViewMode") || "grid";
 let projectsFilter = "all";
+let sidebarSearchQuery = "";
+let projectsSearchQuery = "";
 
 function isAdmin() { return !!me && me.role === "admin"; }
+
+/* ---------- Theme (dark / light) ---------- */
+function applyTheme(theme) {
+  document.body.classList.toggle("theme-dark", theme === "dark");
+  const btn = document.getElementById("btn-theme-toggle");
+  if (btn) btn.classList.toggle("active", theme === "dark");
+}
+(function initTheme() {
+  const saved = localStorage.getItem("theme") || "light";
+  applyTheme(saved);
+})();
+document.getElementById("btn-theme-toggle").addEventListener("click", () => {
+  const next = document.body.classList.contains("theme-dark") ? "light" : "dark";
+  localStorage.setItem("theme", next);
+  applyTheme(next);
+});
+
+document.getElementById("sidebar-search-input").addEventListener("input", (e) => {
+  sidebarSearchQuery = e.target.value.trim().toLowerCase();
+  renderSidebarTree();
+});
 
 function initialsOf(name) {
   return name.trim().split(/\s+/).slice(0, 2).map(w => w[0].toUpperCase()).join("");
@@ -110,7 +137,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 
 document.getElementById("btn-logout").addEventListener("click", async () => {
   await api("POST", "/api/logout").catch(() => {});
-  me = null; team = []; members = []; projects = []; groups = []; tasks = [];
+  me = null; team = []; members = []; projects = []; groups = []; tasks = []; folders = [];
   currentBoardProjectId = null;
   document.getElementById("login-name").value = "";
   document.getElementById("login-pin").value = "";
@@ -137,6 +164,7 @@ async function afterLogin() {
   showApp();
   team = await api("GET", "/api/team-lite");
   categoryLabels = await api("GET", "/api/category-labels");
+  folders = await api("GET", "/api/folders");
   await showView("dashboard");
   renderSidebarTree();
 }
@@ -261,6 +289,11 @@ function setProjectsViewMode(mode) {
 document.getElementById("btn-view-grid").addEventListener("click", () => setProjectsViewMode("grid"));
 document.getElementById("btn-view-list").addEventListener("click", () => setProjectsViewMode("list"));
 
+document.getElementById("projects-search-input").addEventListener("input", (e) => {
+  projectsSearchQuery = e.target.value.trim().toLowerCase();
+  renderProjects();
+});
+
 function renderProjectsFilter() {
   const container = document.getElementById("projects-filter");
   container.innerHTML = "";
@@ -304,12 +337,17 @@ async function renderProjects() {
     return;
   }
 
-  const filteredProjects = projectsFilter === "all"
+  let filteredProjects = projectsFilter === "all"
     ? projects.filter(p => (p.category || "running") !== "archived")
     : projects.filter(p => (p.category || "running") === projectsFilter);
+  if (projectsSearchQuery) {
+    filteredProjects = filteredProjects.filter(p => p.name.toLowerCase().includes(projectsSearchQuery));
+  }
 
   if (filteredProjects.length === 0) {
-    empty.textContent = `No projects in "${categoryLabels[projectsFilter] || projectsFilter}".`;
+    empty.textContent = projectsSearchQuery
+      ? `No projects match "${projectsSearchQuery}".`
+      : `No projects in "${categoryLabels[projectsFilter] || projectsFilter}".`;
     empty.style.display = "block";
     renderSidebarTree();
     return;
@@ -429,12 +467,35 @@ async function renderArchivedPage() {
 }
 
 /* ---------- Sidebar project tree ---------- */
+function matchesSidebarSearch(p) {
+  if (!sidebarSearchQuery) return true;
+  return p.name.toLowerCase().includes(sidebarSearchQuery);
+}
+
+function makeTreeProjectLink(p) {
+  const link = document.createElement("div");
+  link.className = "tree-project-link" + (p.id === currentBoardProjectId ? " active" : "");
+  link.textContent = p.name;
+  link.title = p.name;
+  link.addEventListener("click", () => openBoard(p.id));
+  if (isAdmin()) {
+    link.draggable = true;
+    link.addEventListener("dragstart", (e) => {
+      draggedProjectId = p.id;
+      e.dataTransfer.effectAllowed = "move";
+    });
+    link.addEventListener("dragend", () => { draggedProjectId = null; });
+  }
+  return link;
+}
+
 function renderSidebarTree() {
   const container = document.getElementById("sidebar-tree");
   container.innerHTML = "";
 
   CATEGORY_KEYS.forEach(key => {
-    const catProjects = projects.filter(p => (p.category || "running") === key);
+    const catProjects = projects.filter(p => (p.category || "running") === key && matchesSidebarSearch(p));
+    if (sidebarSearchQuery && catProjects.length === 0) return;
     const section = document.createElement("div");
     section.className = "tree-category";
 
@@ -491,6 +552,27 @@ function renderSidebarTree() {
     head.append(dot, chevron, nameEl, countEl);
     section.appendChild(head);
 
+    if (isAdmin()) {
+      head.addEventListener("dragover", (e) => {
+        if (!draggedProjectId) return;
+        e.preventDefault();
+        head.classList.add("drag-over");
+      });
+      head.addEventListener("dragleave", () => head.classList.remove("drag-over"));
+      head.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        head.classList.remove("drag-over");
+        const pid = draggedProjectId;
+        if (!pid) return;
+        try {
+          const updated = await api("PATCH", `/api/projects/${pid}`, { category: key });
+          const proj = projects.find(x => x.id === pid);
+          if (proj) proj.category = updated.category;
+        } catch (err) { alert(err.message); }
+        renderSidebarTree();
+      });
+    }
+
     if (!collapsedCategories.has(key)) {
       const list = document.createElement("div");
       list.className = "tree-projects";
@@ -500,13 +582,177 @@ function renderSidebarTree() {
         empty.textContent = "Empty";
         list.appendChild(empty);
       } else {
-        catProjects.forEach(p => {
-          const link = document.createElement("div");
-          link.className = "tree-project-link" + (p.id === currentBoardProjectId ? " active" : "");
-          link.textContent = p.name;
-          link.title = p.name;
-          link.addEventListener("click", () => openBoard(p.id));
-          list.appendChild(link);
+        catProjects.forEach(p => list.appendChild(makeTreeProjectLink(p)));
+      }
+      section.appendChild(list);
+    }
+
+    container.appendChild(section);
+  });
+
+  renderFolderTree(container);
+}
+
+/* ---------- Custom folders (sit alongside the fixed categories) ---------- */
+function renderFolderTree(container) {
+  const heading = document.createElement("div");
+  heading.className = "tree-folders-heading";
+  const headingLabel = document.createElement("span");
+  headingLabel.textContent = "FOLDERS";
+  heading.appendChild(headingLabel);
+  if (isAdmin()) {
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "tree-folder-add-btn";
+    addBtn.textContent = "+";
+    addBtn.title = "New folder";
+    addBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      startNewFolderInput(container);
+    });
+    heading.appendChild(addBtn);
+  }
+  container.appendChild(heading);
+
+  const visibleFolders = folders.filter(f => {
+    if (!sidebarSearchQuery) return true;
+    return projects.some(p => p.folderId === f.id && matchesSidebarSearch(p));
+  });
+
+  if (visibleFolders.length === 0 && !sidebarSearchQuery) {
+    const empty = document.createElement("div");
+    empty.className = "tree-empty tree-folders-empty";
+    empty.textContent = isAdmin() ? "No folders yet. Click + to create one." : "No folders yet.";
+    container.appendChild(empty);
+  }
+
+  visibleFolders.forEach(folder => {
+    const folderProjects = projects.filter(p => p.folderId === folder.id && matchesSidebarSearch(p));
+    const section = document.createElement("div");
+    section.className = "tree-category tree-folder";
+
+    const head = document.createElement("div");
+    head.className = "tree-category-head";
+    head.addEventListener("click", () => {
+      if (collapsedFolders.has(folder.id)) collapsedFolders.delete(folder.id);
+      else collapsedFolders.add(folder.id);
+      renderSidebarTree();
+    });
+
+    const dot = document.createElement("span");
+    dot.className = "tree-dot folder-dot";
+
+    const chevron = document.createElement("span");
+    chevron.className = "tree-chevron" + (collapsedFolders.has(folder.id) ? " collapsed" : "");
+    chevron.innerHTML = "&#9662;";
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "tree-category-name";
+    nameEl.textContent = folder.name;
+    if (isAdmin()) {
+      nameEl.title = "Click to rename";
+      nameEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (nameEl.querySelector("input")) return;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = folder.name;
+        nameEl.textContent = "";
+        nameEl.appendChild(input);
+        input.focus();
+        input.select();
+        const commit = async () => {
+          const v = input.value.trim();
+          if (v && v !== folder.name) {
+            try {
+              const updated = await api("PATCH", `/api/folders/${folder.id}`, { name: v });
+              folder.name = updated.name;
+            } catch (err) { alert(err.message); }
+          }
+          renderSidebarTree();
+        };
+        input.addEventListener("blur", commit);
+        input.addEventListener("keydown", ev => { if (ev.key === "Enter") input.blur(); });
+        input.addEventListener("click", ev => ev.stopPropagation());
+      });
+    }
+
+    const countEl = document.createElement("span");
+    countEl.className = "tree-count";
+    countEl.textContent = folderProjects.length;
+
+    head.append(dot, chevron, nameEl, countEl);
+
+    if (isAdmin()) {
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "tree-folder-del-btn";
+      delBtn.innerHTML = "&times;";
+      delBtn.title = "Delete folder";
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete folder "${folder.name}"? Projects inside it are not deleted, just unassigned from this folder.`)) return;
+        try {
+          await api("DELETE", `/api/folders/${folder.id}`);
+          folders = folders.filter(f => f.id !== folder.id);
+          projects.forEach(p => { if (p.folderId === folder.id) p.folderId = null; });
+        } catch (err) { alert(err.message); return; }
+        renderSidebarTree();
+      });
+      head.appendChild(delBtn);
+
+      head.addEventListener("dragover", (e) => {
+        if (!draggedProjectId) return;
+        e.preventDefault();
+        head.classList.add("drag-over");
+      });
+      head.addEventListener("dragleave", () => head.classList.remove("drag-over"));
+      head.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        head.classList.remove("drag-over");
+        const pid = draggedProjectId;
+        if (!pid) return;
+        try {
+          const updated = await api("PATCH", `/api/projects/${pid}`, { folderId: folder.id });
+          const proj = projects.find(x => x.id === pid);
+          if (proj) proj.folderId = updated.folderId;
+        } catch (err) { alert(err.message); }
+        renderSidebarTree();
+      });
+    }
+
+    section.appendChild(head);
+
+    if (!collapsedFolders.has(folder.id)) {
+      const list = document.createElement("div");
+      list.className = "tree-projects";
+      if (folderProjects.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "tree-empty";
+        empty.textContent = "Drag a project here";
+        list.appendChild(empty);
+      } else {
+        folderProjects.forEach(p => {
+          const row = document.createElement("div");
+          row.className = "tree-folder-project-row";
+          row.appendChild(makeTreeProjectLink(p));
+          if (isAdmin()) {
+            const removeBtn = document.createElement("button");
+            removeBtn.type = "button";
+            removeBtn.className = "tree-folder-remove-btn";
+            removeBtn.innerHTML = "&times;";
+            removeBtn.title = "Remove from folder";
+            removeBtn.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              try {
+                await api("PATCH", `/api/projects/${p.id}`, { folderId: null });
+                p.folderId = null;
+              } catch (err) { alert(err.message); return; }
+              renderSidebarTree();
+            });
+            row.appendChild(removeBtn);
+          }
+          list.appendChild(row);
         });
       }
       section.appendChild(list);
@@ -514,6 +760,33 @@ function renderSidebarTree() {
 
     container.appendChild(section);
   });
+}
+
+function startNewFolderInput(container) {
+  const row = document.createElement("div");
+  row.className = "tree-folder-new-row";
+  row.innerHTML = `<input type="text" placeholder="Folder name">`;
+  container.appendChild(row);
+  const input = row.querySelector("input");
+  input.focus();
+  let committed = false;
+  const commit = async () => {
+    if (committed) return;
+    committed = true;
+    const name = input.value.trim();
+    row.remove();
+    if (!name) return;
+    try {
+      const created = await api("POST", "/api/folders", { name });
+      folders.push(created);
+    } catch (err) { alert(err.message); return; }
+    renderSidebarTree();
+  };
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape" && !committed) { committed = true; row.remove(); }
+  });
+  input.addEventListener("blur", commit);
 }
 
 /* ---------- Assign teammates to a project (admin only) ---------- */
@@ -800,6 +1073,7 @@ document.getElementById("input-restore-file").addEventListener("change", async (
     statusEl.classList.add("success");
     team = await api("GET", "/api/team-lite");
     categoryLabels = await api("GET", "/api/category-labels");
+    folders = await api("GET", "/api/folders");
     projects = await api("GET", "/api/projects");
     renderSidebarTree();
   } catch (err) {
@@ -843,6 +1117,79 @@ async function loadAndRenderBoard() {
   document.getElementById("board-subtitle").textContent = project.desc || "";
   renderBoard();
   renderSidebarTree();
+  loadInstructionsPanel(project);
+}
+
+/* ---------- Project instructions panel (rich text) ---------- */
+function sanitizeRichHtml(html) {
+  const allowedTags = new Set(["B", "I", "U", "STRONG", "EM", "H2", "H3", "H4", "P", "BR", "DIV", "SPAN", "UL", "OL", "LI"]);
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  function clean(node) {
+    Array.from(node.childNodes).forEach(child => {
+      if (child.nodeType === 1) {
+        if (!allowedTags.has(child.tagName)) {
+          while (child.firstChild) node.insertBefore(child.firstChild, child);
+          node.removeChild(child);
+          return;
+        }
+        Array.from(child.attributes).forEach(attr => {
+          if (attr.name.toLowerCase() !== "style") child.removeAttribute(attr.name);
+        });
+        clean(child);
+      } else if (child.nodeType !== 3) {
+        node.removeChild(child);
+      }
+    });
+  }
+  clean(container);
+  return container.innerHTML;
+}
+
+function loadInstructionsPanel(project) {
+  const content = document.getElementById("instructions-content");
+  content.innerHTML = project.instructions || "";
+  content.contentEditable = isAdmin() ? "true" : "false";
+  content.classList.toggle("readonly", !isAdmin());
+}
+
+document.getElementById("instructions-content").addEventListener("blur", async () => {
+  if (!isAdmin() || !currentBoardProjectId) return;
+  const content = document.getElementById("instructions-content");
+  const clean = sanitizeRichHtml(content.innerHTML);
+  content.innerHTML = clean;
+  const project = projects.find(p => p.id === currentBoardProjectId);
+  if (project && project.instructions === clean) return;
+  try {
+    const updated = await api("PATCH", `/api/projects/${currentBoardProjectId}`, { instructions: clean });
+    if (project) project.instructions = updated.instructions;
+  } catch (err) { alert(err.message); }
+});
+
+document.querySelectorAll("#instructions-toolbar [data-cmd]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.getElementById("instructions-content").focus();
+    document.execCommand(btn.dataset.cmd, false, null);
+  });
+});
+document.getElementById("instructions-heading").addEventListener("change", (e) => {
+  const content = document.getElementById("instructions-content");
+  content.focus();
+  document.execCommand("formatBlock", false, e.target.value);
+});
+document.getElementById("instructions-color").addEventListener("input", (e) => {
+  const content = document.getElementById("instructions-content");
+  content.focus();
+  document.execCommand("styleWithCSS", false, true);
+  document.execCommand("foreColor", false, e.target.value);
+});
+document.getElementById("btn-instructions-collapse").addEventListener("click", () => {
+  const panel = document.getElementById("board-instructions-panel");
+  panel.classList.toggle("collapsed");
+  localStorage.setItem("instructionsPanelCollapsed", panel.classList.contains("collapsed") ? "1" : "0");
+});
+if (localStorage.getItem("instructionsPanelCollapsed") === "1") {
+  document.getElementById("board-instructions-panel").classList.add("collapsed");
 }
 
 /* ---------- Editable project title (admin only) ---------- */
@@ -883,8 +1230,10 @@ document.getElementById("btn-add-group").addEventListener("click", () => {
   container.appendChild(row);
   const input = row.querySelector("input");
   input.focus();
+  let committed = false;
   const commit = async () => {
-    if (!row.isConnected) return;
+    if (committed) return;
+    committed = true;
     const name = input.value.trim();
     row.remove();
     if (!name) return;
@@ -895,7 +1244,7 @@ document.getElementById("btn-add-group").addEventListener("click", () => {
   };
   input.addEventListener("keydown", e => {
     if (e.key === "Enter") commit();
-    if (e.key === "Escape" && row.isConnected) row.remove();
+    if (e.key === "Escape" && !committed) { committed = true; row.remove(); }
   });
   input.addEventListener("blur", commit);
 });
@@ -1045,12 +1394,64 @@ function buildGroupTable(group) {
 
   const wrap = document.createElement("div");
   wrap.className = "board-table-wrap";
+  wrap.dataset.groupId = group.id;
 
   /* group bar */
   const bar = document.createElement("div");
   bar.className = "group-bar";
 
   const isCollapsed = collapsedGroups.has(group.id);
+
+  if (isAdmin()) {
+    const groupHandle = document.createElement("span");
+    groupHandle.className = "group-drag-handle";
+    groupHandle.innerHTML = "&#8942;&#8942;";
+    groupHandle.title = "Drag to reorder group";
+    groupHandle.addEventListener("mousedown", () => { wrap.draggable = true; });
+    bar.appendChild(groupHandle);
+
+    wrap.addEventListener("dragstart", (e) => {
+      dragGroupReorderId = group.id;
+      wrap.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    wrap.addEventListener("dragend", () => {
+      wrap.draggable = false;
+      wrap.classList.remove("dragging");
+      document.querySelectorAll(".board-table-wrap.drag-over-before,.board-table-wrap.drag-over-after")
+        .forEach(el => el.classList.remove("drag-over-before", "drag-over-after"));
+      dragGroupReorderId = null;
+    });
+    wrap.addEventListener("dragover", (e) => {
+      if (!dragGroupReorderId) return;
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height / 2;
+      wrap.classList.toggle("drag-over-before", before);
+      wrap.classList.toggle("drag-over-after", !before);
+    });
+    wrap.addEventListener("dragleave", () => {
+      wrap.classList.remove("drag-over-before", "drag-over-after");
+    });
+    wrap.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      wrap.classList.remove("drag-over-before", "drag-over-after");
+      const draggedId = dragGroupReorderId;
+      if (!draggedId || draggedId === group.id) return;
+      const ids = groups.map(g => g.id);
+      const fromIdx = ids.indexOf(draggedId);
+      if (fromIdx > -1) ids.splice(fromIdx, 1);
+      const rect = wrap.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height / 2;
+      let toIdx = ids.indexOf(group.id);
+      if (!before) toIdx += 1;
+      ids.splice(toIdx, 0, draggedId);
+      try {
+        await api("POST", "/api/groups/reorder", { groupIds: ids });
+      } catch (err) { alert(err.message); }
+      await loadAndRenderBoard();
+    });
+  }
 
   const chevron = document.createElement("button");
   chevron.className = "group-chevron" + (isCollapsed ? " collapsed" : "");

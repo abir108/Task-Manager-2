@@ -33,6 +33,7 @@ function emptyStore() {
     groups: [],
     tasks: [],
     notes: [],
+    folders: [],
     categoryLabels: { ...DEFAULT_CATEGORY_LABELS }
   };
 }
@@ -61,6 +62,7 @@ function load() {
   if (!store.projects) store.projects = [];
   if (!store.tasks) store.tasks = [];
   if (!store.notes) store.notes = [];
+  if (!store.folders) store.folders = [];
   if (!store.categoryLabels) store.categoryLabels = { ...DEFAULT_CATEGORY_LABELS };
   PROJECT_CATEGORIES.forEach(key => {
     if (!store.categoryLabels[key]) store.categoryLabels[key] = DEFAULT_CATEGORY_LABELS[key];
@@ -72,12 +74,21 @@ function load() {
       p.category = "running";
       changed = true;
     }
+    if (p.folderId === undefined) { p.folderId = null; changed = true; }
+    if (p.instructions === undefined) { p.instructions = ""; changed = true; }
   });
   // Statuses used to be global (store.statuses); now each group owns its own list.
   const legacyStatuses = (store.statuses && store.statuses.length) ? store.statuses : DEFAULT_STATUSES;
+  const groupOrderCounters = new Map();
   store.groups.forEach(g => {
     if (!Array.isArray(g.statuses) || g.statuses.length === 0) {
       g.statuses = legacyStatuses.map(s => ({ ...s }));
+      changed = true;
+    }
+    if (g.order === undefined) {
+      const next = groupOrderCounters.get(g.projectId) || 0;
+      g.order = next;
+      groupOrderCounters.set(g.projectId, next + 1);
       changed = true;
     }
   });

@@ -57,9 +57,18 @@
       </button>
     </nav>
 
+    <div class="sidebar-search">
+      <input type="text" id="sidebar-search-input" placeholder="Search projects...">
+    </div>
+
     <div class="sidebar-tree" id="sidebar-tree"></div>
 
     <div class="sidebar-footer">
+      <button class="theme-toggle" id="btn-theme-toggle" title="Toggle dark mode">
+        <span class="theme-toggle-icon">🌙</span>
+        <span class="theme-toggle-label">Dark mode</span>
+        <span class="theme-toggle-switch"><span class="theme-toggle-knob"></span></span>
+      </button>
       <div class="user-card">
         <div class="avatar" id="current-user-avatar">—</div>
         <div>
@@ -147,6 +156,9 @@
         </div>
       </header>
 
+      <div class="projects-search">
+        <input type="text" id="projects-search-input" placeholder="Search projects...">
+      </div>
       <div id="projects-filter" class="projects-filter"></div>
 
       <div id="projects-grid" class="projects-grid">
@@ -289,9 +301,32 @@
         </div>
       </header>
 
-      <div id="board-groups"></div>
+      <div class="board-layout">
+        <div class="board-main">
+          <div id="board-groups"></div>
+          <button class="btn btn-ghost btn-add-group admin-only" id="btn-add-group">+ Add new group</button>
+        </div>
 
-      <button class="btn btn-ghost btn-add-group admin-only" id="btn-add-group">+ Add new group</button>
+        <aside class="board-instructions-panel" id="board-instructions-panel">
+          <div class="instructions-head">
+            <h3>Instructions</h3>
+            <button type="button" class="instructions-collapse-btn" id="btn-instructions-collapse" title="Collapse">&raquo;</button>
+          </div>
+          <div class="instructions-toolbar admin-only" id="instructions-toolbar">
+            <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+            <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+            <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+            <select id="instructions-heading" title="Text style">
+              <option value="P">Normal</option>
+              <option value="H2">Heading</option>
+              <option value="H3">Subheading</option>
+            </select>
+            <input type="color" id="instructions-color" title="Text color" value="#1c1e2b">
+            <button type="button" data-cmd="insertUnorderedList" title="Bullet list">&bull; List</button>
+          </div>
+          <div id="instructions-content" class="instructions-content" contenteditable="false" data-placeholder="Add notes or instructions for this project..."></div>
+        </aside>
+      </div>
     </section>
 
   </main>
