@@ -1160,7 +1160,12 @@ document.getElementById("instructions-content").addEventListener("blur", async (
   if (!isAdmin() || !currentBoardProjectId) return;
   const content = document.getElementById("instructions-content");
   const clean = sanitizeRichHtml(content.innerHTML);
-  content.innerHTML = clean;
+  // Only touch the DOM if sanitizing actually removed something — reassigning
+  // innerHTML destroys and recreates every node, which would silently break
+  // any saved Selection/Range still pointing at the old ones (e.g. the
+  // toolbar's chained-formatting support), even when blurring to a toolbar
+  // control rather than leaving the panel.
+  if (content.innerHTML !== clean) content.innerHTML = clean;
   const project = projects.find(p => p.id === currentBoardProjectId);
   if (project && project.instructions === clean) return;
   try {
@@ -1169,23 +1174,33 @@ document.getElementById("instructions-content").addEventListener("blur", async (
   } catch (err) { alert(err.message); }
 });
 
-document.querySelectorAll("#instructions-toolbar [data-cmd]").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.getElementById("instructions-content").focus();
-    document.execCommand(btn.dataset.cmd, false, null);
-  });
-});
-document.getElementById("instructions-heading").addEventListener("change", (e) => {
+/* Clicking a toolbar select/input normally steals focus (and the text
+   selection) away from the contenteditable before its change/input event
+   fires. Save the last real selection made inside the editor, and restore
+   it right before applying a format from one of those controls. */
+let savedInstructionsRange = null;
+function saveInstructionsSelection() {
+  const content = document.getElementById("instructions-content");
+  const sel = window.getSelection();
+  if (sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  if (content.contains(range.commonAncestorContainer)) {
+    savedInstructionsRange = range.cloneRange();
+  }
+}
+(function () {
+  const content = document.getElementById("instructions-content");
+  content.addEventListener("mouseup", saveInstructionsSelection);
+  content.addEventListener("keyup", saveInstructionsSelection);
+})();
+function restoreInstructionsSelection() {
   const content = document.getElementById("instructions-content");
   content.focus();
-  document.execCommand("formatBlock", false, e.target.value);
-});
-document.getElementById("instructions-color").addEventListener("input", (e) => {
-  const content = document.getElementById("instructions-content");
-  content.focus();
-  document.execCommand("styleWithCSS", false, true);
-  document.execCommand("foreColor", false, e.target.value);
-});
+  if (!savedInstructionsRange) return;
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  try { sel.addRange(savedInstructionsRange); } catch (e) { /* stale range from a since-changed DOM */ }
+}
 function wrapSelectionWithStyle(styleProp, value) {
   const sel = window.getSelection();
   if (!sel.rangeCount || sel.isCollapsed) return;
@@ -1199,13 +1214,37 @@ function wrapSelectionWithStyle(styleProp, value) {
   newRange.selectNodeContents(span);
   sel.addRange(newRange);
 }
+// Every toolbar action both restores the last known selection (in case focus
+// moved away, e.g. to a <select>) and re-saves it afterward (since formatting
+// commands can replace/rewrap DOM nodes, invalidating the old saved range) —
+// so a second action right after the first still has something valid to work with.
+function applyInstructionsFormat(fn) {
+  restoreInstructionsSelection();
+  fn();
+  saveInstructionsSelection();
+}
+
+document.querySelectorAll("#instructions-toolbar [data-cmd]").forEach(btn => {
+  // Keep focus (and the live selection) on the editor instead of the button.
+  btn.addEventListener("mousedown", (e) => e.preventDefault());
+  btn.addEventListener("click", () => {
+    applyInstructionsFormat(() => document.execCommand(btn.dataset.cmd, false, null));
+  });
+});
+document.getElementById("instructions-heading").addEventListener("change", (e) => {
+  applyInstructionsFormat(() => document.execCommand("formatBlock", false, e.target.value));
+});
+document.getElementById("instructions-color").addEventListener("input", (e) => {
+  applyInstructionsFormat(() => {
+    document.execCommand("styleWithCSS", false, true);
+    document.execCommand("foreColor", false, e.target.value);
+  });
+});
 document.getElementById("instructions-fontsize").addEventListener("change", (e) => {
-  const content = document.getElementById("instructions-content");
   const size = e.target.value;
   e.target.value = "";
   if (!size) return;
-  content.focus();
-  wrapSelectionWithStyle("fontSize", size);
+  applyInstructionsFormat(() => wrapSelectionWithStyle("fontSize", size));
 });
 document.getElementById("btn-instructions-collapse").addEventListener("click", () => {
   const panel = document.getElementById("board-instructions-panel");
@@ -1278,7 +1317,10 @@ function closeAllPopovers() {
   document.querySelectorAll(".popover").forEach(p => p.remove());
 }
 document.addEventListener("click", closeAllPopovers);
-document.addEventListener("mouseup", () => { groupDragArmed = false; });
+document.addEventListener("mouseup", () => {
+  groupDragArmed = false;
+  document.querySelectorAll('.board-table-wrap[draggable="true"]').forEach(w => { w.draggable = false; });
+});
 
 function showPopover(anchor, fillFn) {
   closeAllPopovers();
@@ -1432,10 +1474,12 @@ function buildGroupTable(group) {
     groupHandle.className = "group-drag-handle";
     groupHandle.innerHTML = "&#8942;&#8942;";
     groupHandle.title = "Drag to reorder group";
-    groupHandle.addEventListener("mousedown", () => { groupDragArmed = true; });
+    groupHandle.addEventListener("mousedown", () => {
+      groupDragArmed = true;
+      wrap.draggable = true;
+    });
     bar.appendChild(groupHandle);
 
-    wrap.draggable = true;
     wrap.addEventListener("dragstart", (e) => {
       if (!groupDragArmed) { e.preventDefault(); return; }
       dragGroupReorderId = group.id;
@@ -1445,6 +1489,7 @@ function buildGroupTable(group) {
     });
     wrap.addEventListener("dragend", () => {
       groupDragArmed = false;
+      wrap.draggable = false;
       wrap.classList.remove("dragging");
       document.querySelectorAll(".board-table-wrap.drag-over-before,.board-table-wrap.drag-over-after")
         .forEach(el => el.classList.remove("drag-over-before", "drag-over-after"));
@@ -2351,17 +2396,22 @@ function employeeProjectBreakdown(memberId) {
   }).sort((a, b) => b.total - a.total);
 }
 
+function sortAssignedTasks(list) {
+  return list.slice().sort((a, b) => {
+    const ta = a.task, tb = b.task;
+    if ((ta.status === "done") !== (tb.status === "done")) return ta.status === "done" ? 1 : -1;
+    if (!ta.dueDate && !tb.dueDate) return 0;
+    if (!ta.dueDate) return 1;
+    if (!tb.dueDate) return -1;
+    return new Date(ta.dueDate) - new Date(tb.dueDate);
+  });
+}
+
 function openEmployeeDetail(row) {
   const breakdown = employeeProjectBreakdown(row.member.id);
-  const assignedTasks = reportAllTasksCache
+  const allAssignedTasks = reportAllTasksCache
     .filter(t => (t.assigneeIds || []).includes(row.member.id))
-    .sort((a, b) => {
-      if ((a.status === "done") !== (b.status === "done")) return a.status === "done" ? 1 : -1;
-      if (!a.dueDate && !b.dueDate) return 0;
-      if (!a.dueDate) return 1;
-      if (!b.dueDate) return -1;
-      return new Date(a.dueDate) - new Date(b.dueDate);
-    });
+    .map(task => ({ task, project: reportAllProjectsCache.find(p => p.id === task.projectId) }));
 
   const summaryHtml = `
     <div class="report-detail-summary">
@@ -2388,9 +2438,27 @@ function openEmployeeDetail(row) {
     `).join("") + `</div>` : `<p class="empty-hint">Not assigned to any project.</p>`}
   `;
 
+  const projectOptions = breakdown
+    .filter(b => b.project)
+    .map(b => `<option value="${b.project.id}">${escapeHtml(b.project.name)}</option>`)
+    .join("");
+
   const tasksHtml = `
     <h3 class="report-detail-subhead">All assigned tasks</h3>
-    ${taskListHtml(assignedTasks.map(task => ({ task, project: reportAllProjectsCache.find(p => p.id === task.projectId) })))}
+    <div class="report-detail-filters">
+      <select id="emp-detail-project-filter">
+        <option value="">All projects</option>
+        ${projectOptions}
+      </select>
+      <select id="emp-detail-due-filter">
+        <option value="">All due dates</option>
+        <option value="overdue">Overdue</option>
+        <option value="week">Due within 7 days</option>
+        <option value="has">Has due date</option>
+        <option value="none">No due date</option>
+      </select>
+    </div>
+    <div id="emp-detail-task-list"></div>
   `;
 
   openReportDetail(
@@ -2398,6 +2466,33 @@ function openEmployeeDetail(row) {
     `${row.assignedCount} task${row.assignedCount === 1 ? "" : "s"} across ${row.projectCount} project${row.projectCount === 1 ? "" : "s"}`,
     summaryHtml + breakdownHtml + tasksHtml
   );
+
+  function applyEmployeeTaskFilters() {
+    const projFilter = document.getElementById("emp-detail-project-filter").value;
+    const dueFilter = document.getElementById("emp-detail-due-filter").value;
+    let filtered = allAssignedTasks;
+    if (projFilter) filtered = filtered.filter(({ task }) => task.projectId === projFilter);
+    if (dueFilter === "overdue") {
+      filtered = filtered.filter(({ task }) => task.status !== "done" && task.dueDate && daysUntil(task.dueDate) < 0);
+    } else if (dueFilter === "week") {
+      filtered = filtered.filter(({ task }) => {
+        if (task.status === "done" || !task.dueDate) return false;
+        const d = daysUntil(task.dueDate);
+        return d !== null && d >= 0 && d <= 7;
+      });
+    } else if (dueFilter === "has") {
+      filtered = filtered.filter(({ task }) => !!task.dueDate);
+    } else if (dueFilter === "none") {
+      filtered = filtered.filter(({ task }) => !task.dueDate);
+    }
+    const container = document.getElementById("emp-detail-task-list");
+    container.innerHTML = taskListHtml(sortAssignedTasks(filtered));
+    attachDetailRowNav(container, "modal-report-detail");
+  }
+
+  document.getElementById("emp-detail-project-filter").addEventListener("change", applyEmployeeTaskFilters);
+  document.getElementById("emp-detail-due-filter").addEventListener("change", applyEmployeeTaskFilters);
+  applyEmployeeTaskFilters();
 }
 
 async function renderReportPage() {

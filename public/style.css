@@ -791,7 +791,7 @@ body.role-member #nav-team { display: none; }
   .report-progress { min-width: 120px; }
 }
 
-.report-detail-modal { max-width: 620px; width: 92%; }
+.report-detail-modal { max-width: 860px; width: 92%; }
 .report-detail-body { max-height: 56vh; overflow-y: auto; margin-top: 8px; }
 
 .report-detail-summary {
@@ -817,6 +817,16 @@ body.role-member #nav-team { display: none; }
   margin: 18px 0 8px;
 }
 .report-detail-subhead:first-child { margin-top: 0; }
+
+.report-detail-filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.report-detail-filters select {
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text);
+}
 
 .report-detail-list { display: flex; flex-direction: column; gap: 6px; }
 .report-detail-row {
