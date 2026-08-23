@@ -86,6 +86,19 @@ function projectVisible(project, member) {
   return project.memberIds.includes(member.id);
 }
 
+const MAX_INSTRUCTIONS_LENGTH = 20000;
+
+// Light defense-in-depth strip on top of the client-side DOM-based sanitizer:
+// removes script/style/iframe/object/embed blocks and any on*="" event handler attributes.
+function sanitizeInstructionsHtml(html) {
+  return String(html)
+    .slice(0, MAX_INSTRUCTIONS_LENGTH)
+    .replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<(script|style|iframe|object|embed)[^>]*\/?>/gi, "")
+    .replace(/\son\w+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
 /* ---------- Note attachments ---------- */
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "uploads");
 const NOTES_DIR = path.join(UPLOAD_DIR, "notes");
@@ -272,10 +285,12 @@ app.post("/api/projects", requireAdmin, async (req, res) => {
     deadline: String(req.body.deadline || ""),
     memberIds: [],
     category: "running",
+    folderId: null,
+    instructions: "",
     createdAt: Date.now()
   };
   store.projects.push(project);
-  const group = { id: uid(), projectId: project.id, name: "Tasks", statuses: DEFAULT_STATUSES.map(s => ({ ...s })), createdAt: Date.now() };
+  const group = { id: uid(), projectId: project.id, name: "Tasks", statuses: DEFAULT_STATUSES.map(s => ({ ...s })), order: 0, createdAt: Date.now() };
   store.groups.push(group);
   await save();
   res.status(201).json(project);
@@ -294,6 +309,18 @@ app.patch("/api/projects/:id", requireAdmin, async (req, res) => {
   if (req.body.category !== undefined && PROJECT_CATEGORIES.includes(req.body.category)) {
     project.category = req.body.category;
   }
+  if (req.body.folderId !== undefined) {
+    if (req.body.folderId === null) {
+      project.folderId = null;
+    } else if (store.folders.some(f => f.id === req.body.folderId)) {
+      project.folderId = req.body.folderId;
+    } else {
+      return res.status(400).json({ error: "Unknown folder" });
+    }
+  }
+  if (req.body.instructions !== undefined) {
+    project.instructions = sanitizeInstructionsHtml(req.body.instructions);
+  }
   await save();
   res.json(project);
 });
@@ -308,6 +335,37 @@ app.delete("/api/projects/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---------- Custom folders (sit alongside the fixed categories) ---------- */
+app.get("/api/folders", requireAuth, (req, res) => {
+  res.json(store.folders);
+});
+
+app.post("/api/folders", requireAdmin, async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Folder name is required" });
+  const folder = { id: uid(), name, createdAt: Date.now() };
+  store.folders.push(folder);
+  await save();
+  res.status(201).json(folder);
+});
+
+app.patch("/api/folders/:id", requireAdmin, async (req, res) => {
+  const folder = store.folders.find(f => f.id === req.params.id);
+  if (!folder) return res.status(404).json({ error: "Not found" });
+  if (req.body.name !== undefined) folder.name = String(req.body.name).trim() || folder.name;
+  await save();
+  res.json(folder);
+});
+
+app.delete("/api/folders/:id", requireAdmin, async (req, res) => {
+  const folder = store.folders.find(f => f.id === req.params.id);
+  if (!folder) return res.status(404).json({ error: "Not found" });
+  store.folders = store.folders.filter(f => f.id !== folder.id);
+  store.projects.forEach(p => { if (p.folderId === folder.id) p.folderId = null; });
+  await save();
+  res.json({ ok: true });
+});
+
 /* ---------- Groups ---------- */
 function loadProjectOr403(req, res) {
   const projectId = req.query.projectId || req.body.projectId;
@@ -317,10 +375,12 @@ function loadProjectOr403(req, res) {
   return project;
 }
 
+const byGroupOrder = (a, b) => (a.order || 0) - (b.order || 0);
+
 app.get("/api/groups", requireAuth, (req, res) => {
   const project = loadProjectOr403(req, res);
   if (!project) return;
-  res.json(store.groups.filter(g => g.projectId === project.id));
+  res.json(store.groups.filter(g => g.projectId === project.id).sort(byGroupOrder));
 });
 
 app.post("/api/groups", requireAdmin, async (req, res) => {
@@ -328,10 +388,29 @@ app.post("/api/groups", requireAdmin, async (req, res) => {
   if (!project) return res.status(404).json({ error: "Project not found" });
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "Group name is required" });
-  const group = { id: uid(), projectId: project.id, name, statuses: DEFAULT_STATUSES.map(s => ({ ...s })), createdAt: Date.now() };
+  const siblingCount = store.groups.filter(g => g.projectId === project.id).length;
+  const group = { id: uid(), projectId: project.id, name, statuses: DEFAULT_STATUSES.map(s => ({ ...s })), order: siblingCount, createdAt: Date.now() };
   store.groups.push(group);
   await save();
   res.status(201).json(group);
+});
+
+app.post("/api/groups/reorder", requireAdmin, async (req, res) => {
+  const groupIds = req.body.groupIds;
+  if (!Array.isArray(groupIds) || groupIds.length === 0) {
+    return res.status(400).json({ error: "groupIds must be a non-empty array" });
+  }
+  const involved = groupIds.map(id => store.groups.find(g => g.id === id));
+  if (involved.some(g => !g)) return res.status(404).json({ error: "One or more groups not found" });
+  const { projectId } = involved[0];
+  if (!involved.every(g => g.projectId === projectId)) {
+    return res.status(400).json({ error: "All groups must belong to the same project" });
+  }
+  groupIds.forEach((id, index) => {
+    store.groups.find(g => g.id === id).order = index;
+  });
+  await save();
+  res.json({ ok: true });
 });
 
 app.patch("/api/groups/:id", requireAdmin, async (req, res) => {
@@ -361,6 +440,7 @@ app.post("/api/groups/:id/duplicate", requireAdmin, async (req, res) => {
     projectId: group.projectId,
     name: group.name + " (Copy)",
     statuses: (group.statuses || DEFAULT_STATUSES).map(s => ({ ...s })),
+    order: (group.order || 0) + 0.5,
     createdAt: Date.now()
   };
   const originalTasks = store.tasks.filter(t => t.groupId === group.id);
@@ -674,15 +754,23 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
 
   incoming.projects.forEach(p => {
     if (!p.category || !PROJECT_CATEGORIES.includes(p.category)) p.category = "running";
+    if (p.folderId === undefined) p.folderId = null;
+    if (p.instructions === undefined) p.instructions = "";
   });
   incoming.tasks.forEach(t => {
     if (!Array.isArray(t.assigneeIds)) t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];
   });
   // Older backups had a single global status list; migrate it onto each group.
   const legacyStatuses = (Array.isArray(incoming.statuses) && incoming.statuses.length) ? incoming.statuses : DEFAULT_STATUSES;
+  const restoreGroupOrderCounters = new Map();
   incoming.groups.forEach(g => {
     if (!Array.isArray(g.statuses) || g.statuses.length === 0) {
       g.statuses = legacyStatuses.map(s => ({ ...s }));
+    }
+    if (g.order === undefined) {
+      const next = restoreGroupOrderCounters.get(g.projectId) || 0;
+      g.order = next;
+      restoreGroupOrderCounters.set(g.projectId, next + 1);
     }
   });
 
@@ -691,6 +779,7 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
   store.groups = incoming.groups;
   store.tasks = incoming.tasks;
   store.notes = Array.isArray(incoming.notes) ? incoming.notes : [];
+  store.folders = Array.isArray(incoming.folders) ? incoming.folders : [];
   delete store.statuses;
   if (incoming.categoryLabels && typeof incoming.categoryLabels === "object") {
     store.categoryLabels = incoming.categoryLabels;
