@@ -299,6 +299,27 @@
 
 <!-- ===== MODALS ===== -->
 
+<div class="modal-overlay" id="modal-notes">
+  <div class="modal notes-modal">
+    <h2 id="notes-modal-title">Updates</h2>
+    <div id="notes-list" class="notes-list"></div>
+    <form id="notes-form" class="notes-form">
+      <textarea id="notes-input" placeholder="Write an update..." rows="2"></textarea>
+      <div class="notes-form-row">
+        <label class="btn btn-ghost file-btn notes-attach-btn">
+          📎 Attach
+          <input type="file" id="notes-attachments" multiple hidden>
+        </label>
+        <span id="notes-attach-preview" class="notes-attach-preview"></span>
+        <button type="submit" class="btn btn-primary">Post</button>
+      </div>
+    </form>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close="modal-notes">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-crop">
   <div class="modal crop-modal">
     <h2>Adjust Photo</h2>

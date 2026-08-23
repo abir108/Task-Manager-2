@@ -32,6 +32,7 @@ function emptyStore() {
     projects: [],
     groups: [],
     tasks: [],
+    notes: [],
     categoryLabels: { ...DEFAULT_CATEGORY_LABELS }
   };
 }
@@ -59,6 +60,7 @@ function load() {
   if (!store.members) store.members = [];
   if (!store.projects) store.projects = [];
   if (!store.tasks) store.tasks = [];
+  if (!store.notes) store.notes = [];
   if (!store.categoryLabels) store.categoryLabels = { ...DEFAULT_CATEGORY_LABELS };
   PROJECT_CATEGORIES.forEach(key => {
     if (!store.categoryLabels[key]) store.categoryLabels[key] = DEFAULT_CATEGORY_LABELS[key];

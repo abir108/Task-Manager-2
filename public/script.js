@@ -12,6 +12,8 @@ let groups = [];
 let tasks = [];
 let categoryLabels = { running: "Running Projects", query: "Sent to Query", completed: "Completed Projects" };
 let currentBoardProjectId = null;
+let boardNotes = [];
+let notesModalTaskId = null;
 const expandedTasks = new Set();
 const collapsedGroups = new Set();
 const collapsedCategories = new Set();
@@ -825,6 +827,7 @@ async function loadAndRenderBoard() {
   try {
     groups = await api("GET", `/api/groups?projectId=${currentBoardProjectId}`);
     tasks = await api("GET", `/api/tasks?projectId=${currentBoardProjectId}`);
+    boardNotes = await api("GET", `/api/notes?projectId=${currentBoardProjectId}`);
     projects = await api("GET", "/api/projects");
     project = projects.find(p => p.id === currentBoardProjectId) || project;
   } catch (err) {
@@ -1143,6 +1146,7 @@ function buildGroupTable(group) {
   table.className = "task-table";
   table.innerHTML = `<thead><tr>
     <th class="col-task">Task</th>
+    <th class="col-notes"></th>
     <th class="col-owner">Owner</th>
     <th class="col-status">Status</th>
     <th class="col-due">Due date</th>
@@ -1302,6 +1306,20 @@ function buildTaskRow(task, project, groupTasks, isSub, group) {
     });
   }
 
+  const tdNotes = document.createElement("td");
+  tdNotes.className = "cell-notes";
+  const noteCount = boardNotes.filter(n => n.taskId === task.id).length;
+  const noteBtn = document.createElement("button");
+  noteBtn.type = "button";
+  noteBtn.className = "note-btn" + (noteCount > 0 ? " has-notes" : "");
+  noteBtn.title = "Updates";
+  noteBtn.innerHTML = `💬${noteCount > 0 ? `<span class="note-count">${noteCount}</span>` : ""}`;
+  noteBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openNotesModal(task);
+  });
+  tdNotes.appendChild(noteBtn);
+
   const tdOwner = document.createElement("td");
   const ownerCell = document.createElement("div");
   ownerCell.className = "owner-cell";
@@ -1451,14 +1469,14 @@ function buildTaskRow(task, project, groupTasks, isSub, group) {
     tdActions.appendChild(delBtn);
   }
 
-  tr.append(tdTask, tdOwner, tdStatus, tdDue, tdTimeline, tdActions);
+  tr.append(tdTask, tdNotes, tdOwner, tdStatus, tdDue, tdTimeline, tdActions);
   return tr;
 }
 
 function buildAddSubitemRow(parentTask, group) {
   const tr = document.createElement("tr");
   const td = document.createElement("td");
-  td.colSpan = 6;
+  td.colSpan = 7;
   td.style.padding = "0";
 
   const row = document.createElement("div");
@@ -1481,6 +1499,117 @@ function buildAddSubitemRow(parentTask, group) {
   tr.appendChild(td);
   return tr;
 }
+
+/* ---------- Task updates / notes with attachments ---------- */
+async function apiUpload(url, formData) {
+  const res = await fetch(url, { method: "POST", credentials: "same-origin", body: formData });
+  if (res.status === 401) { showLogin(); throw new Error("Not logged in"); }
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* no body */ }
+  if (!res.ok) throw new Error((data && data.error) || "Request failed");
+  return data;
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+function formatDateTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " +
+    d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function openNotesModal(task) {
+  notesModalTaskId = task.id;
+  document.getElementById("notes-modal-title").textContent = task.title;
+  document.getElementById("notes-input").value = "";
+  document.getElementById("notes-attachments").value = "";
+  document.getElementById("notes-attach-preview").textContent = "";
+  renderNotesList(task.id);
+  openModal("modal-notes");
+}
+
+function renderNotesList(taskId) {
+  const list = document.getElementById("notes-list");
+  const notes = boardNotes.filter(n => n.taskId === taskId).sort((a, b) => a.createdAt - b.createdAt);
+  if (notes.length === 0) {
+    list.innerHTML = `<p class="empty-hint">No updates yet. Be the first to add one.</p>`;
+    return;
+  }
+  list.innerHTML = notes.map(n => {
+    const author = team.find(m => m.id === n.authorId);
+    const canDelete = isAdmin() || (!!me && n.authorId === me.id);
+    const attachmentsHtml = (n.attachments || []).map(a => `
+      <a class="note-attachment" href="/api/notes/${n.id}/attachments/${a.id}" target="_blank" rel="noopener">
+        📎 ${escapeHtml(a.originalName)} <span class="note-att-size">(${formatFileSize(a.size)})</span>
+      </a>
+    `).join("");
+    return `
+      <div class="note-item" data-note-id="${n.id}">
+        <div class="note-head">
+          ${avatarHtml(author || { id: n.authorId, name: "?" })}
+          <div class="note-head-text">
+            <span class="note-author">${escapeHtml(author ? author.name : "Former teammate")}</span>
+            <span class="note-time">${formatDateTime(n.createdAt)}</span>
+          </div>
+          ${canDelete ? `<button type="button" class="note-del" title="Delete update">&times;</button>` : ""}
+        </div>
+        ${n.text ? `<div class="note-text">${escapeHtml(n.text)}</div>` : ""}
+        ${attachmentsHtml ? `<div class="note-attachments">${attachmentsHtml}</div>` : ""}
+      </div>
+    `;
+  }).join("");
+  list.querySelectorAll(".note-del").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      const noteEl = e.target.closest(".note-item");
+      const noteId = noteEl.dataset.noteId;
+      if (!confirm("Delete this update?")) return;
+      try {
+        await api("DELETE", `/api/notes/${noteId}`);
+        boardNotes = boardNotes.filter(n => n.id !== noteId);
+        renderNotesList(taskId);
+        renderBoard();
+      } catch (err) { alert(err.message); }
+    });
+  });
+}
+
+document.getElementById("notes-attachments").addEventListener("change", (e) => {
+  const files = Array.from(e.target.files);
+  document.getElementById("notes-attach-preview").textContent = files.length ? files.map(f => f.name).join(", ") : "";
+});
+
+document.getElementById("notes-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!notesModalTaskId) return;
+  const textEl = document.getElementById("notes-input");
+  const fileInput = document.getElementById("notes-attachments");
+  const text = textEl.value.trim();
+  const files = fileInput.files;
+  if (!text && files.length === 0) return;
+
+  const fd = new FormData();
+  fd.append("text", text);
+  Array.from(files).forEach(f => fd.append("attachments", f));
+
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  try {
+    const note = await apiUpload(`/api/tasks/${notesModalTaskId}/notes`, fd);
+    boardNotes.push(note);
+    textEl.value = "";
+    fileInput.value = "";
+    document.getElementById("notes-attach-preview").textContent = "";
+    renderNotesList(notesModalTaskId);
+    renderBoard();
+  } catch (err) {
+    alert(err.message);
+  }
+  submitBtn.disabled = false;
+});
 
 function buildTimelineEl(task, allTasks) {
   const wrap = document.createElement("div");
@@ -1531,6 +1660,7 @@ function buildSummaryRow(tasksArr, groupStatuses) {
   row.className = "summary-row";
   row.innerHTML = `
     <div class="summary-cell col-task">Overall</div>
+    <div class="summary-cell col-notes"></div>
     <div class="summary-cell col-owner"></div>
     <div class="summary-cell col-status"><div class="summary-status-bar"></div></div>
     <div class="summary-cell col-due"></div>

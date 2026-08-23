@@ -1,8 +1,10 @@
 const path = require("path");
+const fs = require("fs");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
+const multer = require("multer");
 const { store, save, uid, recomputeProjectCategory, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
 
 const app = express();
@@ -82,6 +84,47 @@ function isValidAvatarUrl(v) {
 function projectVisible(project, member) {
   if (member.role === "admin") return true;
   return project.memberIds.includes(member.id);
+}
+
+/* ---------- Note attachments ---------- */
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "uploads");
+const NOTES_DIR = path.join(UPLOAD_DIR, "notes");
+if (!fs.existsSync(NOTES_DIR)) fs.mkdirSync(NOTES_DIR, { recursive: true });
+
+const ALLOWED_ATTACHMENT_EXT = new Set([
+  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt",
+  ".png", ".jpg", ".jpeg", ".gif"
+]);
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB per file
+const MAX_ATTACHMENTS_PER_NOTE = 5;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_ATTACHMENT_SIZE, files: MAX_ATTACHMENTS_PER_NOTE },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_ATTACHMENT_EXT.has(ext)) return cb(new Error("That file type isn't allowed"));
+    cb(null, true);
+  }
+});
+
+function taskAccessOr403(req, res, taskId) {
+  const task = store.tasks.find(t => t.id === taskId);
+  if (!task) { res.status(404).json({ error: "Task not found" }); return null; }
+  const project = store.projects.find(p => p.id === task.projectId);
+  if (!project || !projectVisible(project, req.member)) { res.status(403).json({ error: "Not assigned to this project" }); return null; }
+  return task;
+}
+
+function deleteNotesForTaskIds(taskIds) {
+  if (!taskIds.length) return;
+  const idSet = new Set(taskIds);
+  const toRemove = store.notes.filter(n => idSet.has(n.taskId));
+  store.notes = store.notes.filter(n => !idSet.has(n.taskId));
+  toRemove.forEach(note => {
+    const noteDir = path.join(NOTES_DIR, note.id);
+    if (fs.existsSync(noteDir)) fs.rmSync(noteDir, { recursive: true, force: true });
+  });
 }
 
 /* ---------- Auth routes ---------- */
@@ -489,9 +532,84 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
 app.delete("/api/tasks/:id", requireAdmin, async (req, res) => {
   const task = store.tasks.find(t => t.id === req.params.id);
   if (!task) return res.status(404).json({ error: "Not found" });
+  const removedIds = store.tasks.filter(t => t.id === task.id || t.parentId === task.id).map(t => t.id);
   store.tasks = store.tasks.filter(t => t.id !== task.id && t.parentId !== task.id);
+  deleteNotesForTaskIds(removedIds);
   await save();
   res.json({ ok: true });
+});
+
+/* ---------- Task notes / updates (with file attachments) ---------- */
+app.get("/api/notes", requireAuth, (req, res) => {
+  const project = loadProjectOr403(req, res);
+  if (!project) return;
+  const taskIds = new Set(store.tasks.filter(t => t.projectId === project.id).map(t => t.id));
+  const notes = store.notes.filter(n => taskIds.has(n.taskId)).sort((a, b) => a.createdAt - b.createdAt);
+  res.json(notes);
+});
+
+app.post("/api/tasks/:id/notes", requireAuth, upload.array("attachments", MAX_ATTACHMENTS_PER_NOTE), async (req, res) => {
+  const task = taskAccessOr403(req, res, req.params.id);
+  if (!task) return;
+
+  const text = String(req.body.text || "").trim();
+  const files = req.files || [];
+  if (!text && files.length === 0) return res.status(400).json({ error: "Write something or attach a file" });
+
+  const noteId = uid();
+  const attachments = [];
+  if (files.length) {
+    const noteDir = path.join(NOTES_DIR, noteId);
+    fs.mkdirSync(noteDir, { recursive: true });
+    files.forEach(file => {
+      const attId = uid();
+      const ext = path.extname(file.originalname).toLowerCase();
+      const storedName = attId + ext;
+      fs.writeFileSync(path.join(noteDir, storedName), file.buffer);
+      attachments.push({ id: attId, originalName: file.originalname, storedName, size: file.size, mimeType: file.mimetype });
+    });
+  }
+
+  const note = {
+    id: noteId,
+    taskId: task.id,
+    authorId: req.member.id,
+    text,
+    attachments,
+    createdAt: Date.now()
+  };
+  store.notes.push(note);
+  await save();
+  res.status(201).json(note);
+});
+
+app.delete("/api/notes/:id", requireAuth, async (req, res) => {
+  const note = store.notes.find(n => n.id === req.params.id);
+  if (!note) return res.status(404).json({ error: "Not found" });
+  const task = store.tasks.find(t => t.id === note.taskId);
+  const project = task ? store.projects.find(p => p.id === task.projectId) : null;
+  if (!project || !projectVisible(project, req.member)) return res.status(403).json({ error: "Not assigned to this project" });
+  if (req.member.role !== "admin" && note.authorId !== req.member.id) {
+    return res.status(403).json({ error: "You can only delete your own updates" });
+  }
+  store.notes = store.notes.filter(n => n.id !== note.id);
+  const noteDir = path.join(NOTES_DIR, note.id);
+  if (fs.existsSync(noteDir)) fs.rmSync(noteDir, { recursive: true, force: true });
+  await save();
+  res.json({ ok: true });
+});
+
+app.get("/api/notes/:noteId/attachments/:attId", requireAuth, (req, res) => {
+  const note = store.notes.find(n => n.id === req.params.noteId);
+  if (!note) return res.status(404).json({ error: "Not found" });
+  const task = store.tasks.find(t => t.id === note.taskId);
+  const project = task ? store.projects.find(p => p.id === task.projectId) : null;
+  if (!project || !projectVisible(project, req.member)) return res.status(403).json({ error: "Not assigned to this project" });
+  const att = note.attachments.find(a => a.id === req.params.attId);
+  if (!att) return res.status(404).json({ error: "Not found" });
+  const filePath = path.join(NOTES_DIR, note.id, att.storedName);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File missing" });
+  res.download(filePath, att.originalName);
 });
 
 /* ---------- Statuses (per group) ---------- */
@@ -572,6 +690,7 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
   store.projects = incoming.projects;
   store.groups = incoming.groups;
   store.tasks = incoming.tasks;
+  store.notes = Array.isArray(incoming.notes) ? incoming.notes : [];
   delete store.statuses;
   if (incoming.categoryLabels && typeof incoming.categoryLabels === "object") {
     store.categoryLabels = incoming.categoryLabels;
@@ -582,6 +701,16 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
 
 /* ---------- Static frontend ---------- */
 app.use(express.static(path.join(__dirname, "public")));
+
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "File is too large (max 10MB each)" });
+    if (err.code === "LIMIT_FILE_COUNT") return res.status(400).json({ error: `You can attach at most ${MAX_ATTACHMENTS_PER_NOTE} files` });
+    return res.status(400).json({ error: err.message });
+  }
+  if (err) return res.status(400).json({ error: err.message || "Request failed" });
+  next();
+});
 
 app.listen(PORT, () => {
   console.log(`WorkFlow server running at http://localhost:${PORT}`);
