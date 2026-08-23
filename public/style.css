@@ -480,6 +480,7 @@ body.role-member #nav-team { display: none; }
   padding: 32px 40px;
   max-width: 1200px;
 }
+.main.main-wide { max-width: none; }
 
 .view { display: none; }
 .view.active { display: block; }
@@ -1815,12 +1816,15 @@ body.theme-dark .category-badge.archived { background: var(--bg-subtle); color: 
   display: inline-block;
   width: 14px;
   cursor: grab;
-  color: rgba(255,255,255,0.7);
-  font-size: 12px;
+  color: var(--accent);
+  opacity: .55;
+  font-size: 13px;
   letter-spacing: -2px;
   vertical-align: middle;
-  margin-right: 4px;
+  flex-shrink: 0;
 }
+.group-drag-handle:hover { opacity: 1; }
+.group-bar:active .group-drag-handle { cursor: grabbing; }
 .board-table-wrap.dragging { opacity: .4; }
 .board-table-wrap.drag-over-before { box-shadow: 0 -3px 0 0 var(--accent); }
 .board-table-wrap.drag-over-after { box-shadow: 0 3px 0 0 var(--accent); }
@@ -1834,7 +1838,7 @@ body.theme-dark .category-badge.archived { background: var(--bg-subtle); color: 
 .board-main { flex: 1; min-width: 0; }
 
 .board-instructions-panel {
-  width: 300px;
+  width: 380px;
   flex-shrink: 0;
   background: var(--card-bg);
   border-radius: var(--radius);
@@ -1873,17 +1877,17 @@ body.theme-dark .category-badge.archived { background: var(--bg-subtle); color: 
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 .instructions-toolbar button {
   background: var(--bg-subtle);
   border: 1px solid var(--border);
   border-radius: 5px;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   font-size: 12px;
   cursor: pointer;
   color: var(--text);
@@ -1891,15 +1895,16 @@ body.theme-dark .category-badge.archived { background: var(--bg-subtle); color: 
 .instructions-toolbar button:hover { border-color: var(--accent); color: var(--accent); }
 .instructions-toolbar select {
   font-size: 12px;
-  padding: 4px 6px;
+  padding: 5px 6px;
   border-radius: 5px;
   border: 1px solid var(--border);
   background: var(--bg-subtle);
   color: var(--text);
+  height: 28px;
 }
 .instructions-toolbar input[type="color"] {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 5px;

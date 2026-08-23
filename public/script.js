@@ -27,6 +27,7 @@ const CATEGORY_KEYS = ["running", "query", "completed"];
 let dragTaskId = null;
 let dragGroupId = null;
 let dragGroupReorderId = null;
+let groupDragArmed = false;
 let draggedProjectId = null;
 let projectsViewMode = localStorage.getItem("projectsViewMode") || "grid";
 let projectsFilter = "all";
@@ -190,6 +191,7 @@ async function showView(name) {
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById("view-" + name).classList.add("active");
   navButtons.forEach(b => b.classList.toggle("active", b.dataset.view === name));
+  document.querySelector(".main").classList.remove("main-wide");
   if (name === "dashboard") await renderDashboard();
   if (name === "projects") await renderProjects();
   if (name === "team") await renderTeam();
@@ -1091,6 +1093,7 @@ async function openBoard(projectId) {
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById("view-board").classList.add("active");
   navButtons.forEach(b => b.classList.remove("active"));
+  document.querySelector(".main").classList.add("main-wide");
   await loadAndRenderBoard();
 }
 
@@ -1183,6 +1186,27 @@ document.getElementById("instructions-color").addEventListener("input", (e) => {
   document.execCommand("styleWithCSS", false, true);
   document.execCommand("foreColor", false, e.target.value);
 });
+function wrapSelectionWithStyle(styleProp, value) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  const span = document.createElement("span");
+  span.style[styleProp] = value;
+  span.appendChild(range.extractContents());
+  range.insertNode(span);
+  sel.removeAllRanges();
+  const newRange = document.createRange();
+  newRange.selectNodeContents(span);
+  sel.addRange(newRange);
+}
+document.getElementById("instructions-fontsize").addEventListener("change", (e) => {
+  const content = document.getElementById("instructions-content");
+  const size = e.target.value;
+  e.target.value = "";
+  if (!size) return;
+  content.focus();
+  wrapSelectionWithStyle("fontSize", size);
+});
 document.getElementById("btn-instructions-collapse").addEventListener("click", () => {
   const panel = document.getElementById("board-instructions-panel");
   panel.classList.toggle("collapsed");
@@ -1254,6 +1278,7 @@ function closeAllPopovers() {
   document.querySelectorAll(".popover").forEach(p => p.remove());
 }
 document.addEventListener("click", closeAllPopovers);
+document.addEventListener("mouseup", () => { groupDragArmed = false; });
 
 function showPopover(anchor, fillFn) {
   closeAllPopovers();
@@ -1407,16 +1432,19 @@ function buildGroupTable(group) {
     groupHandle.className = "group-drag-handle";
     groupHandle.innerHTML = "&#8942;&#8942;";
     groupHandle.title = "Drag to reorder group";
-    groupHandle.addEventListener("mousedown", () => { wrap.draggable = true; });
+    groupHandle.addEventListener("mousedown", () => { groupDragArmed = true; });
     bar.appendChild(groupHandle);
 
+    wrap.draggable = true;
     wrap.addEventListener("dragstart", (e) => {
+      if (!groupDragArmed) { e.preventDefault(); return; }
       dragGroupReorderId = group.id;
       wrap.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setDragImage(bar, 16, 16);
     });
     wrap.addEventListener("dragend", () => {
-      wrap.draggable = false;
+      groupDragArmed = false;
       wrap.classList.remove("dragging");
       document.querySelectorAll(".board-table-wrap.drag-over-before,.board-table-wrap.drag-over-after")
         .forEach(el => el.classList.remove("drag-over-before", "drag-over-after"));
