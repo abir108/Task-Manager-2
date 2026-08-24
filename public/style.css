@@ -673,8 +673,11 @@ body.role-member #nav-team { display: none; }
   .report-progress { min-width: 120px; }
 }
 
-.report-detail-modal { max-width: 860px; width: 92%; }
-.report-detail-body { max-height: 56vh; overflow-y: auto; margin-top: 8px; }
+.modal.report-detail-modal { width: 860px; max-width: 92vw; }
+.report-detail-body { max-height: 65vh; overflow-y: auto; margin-top: 8px; }
+
+.report-detail-tabs { margin-bottom: 14px; }
+#emp-detail-projects-panel.hidden, #emp-detail-tasks-panel.hidden { display: none; }
 
 .report-detail-summary {
   display: grid;
@@ -689,16 +692,6 @@ body.role-member #nav-team { display: none; }
 .report-detail-summary > div { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .rds-num { font-size: 18px; font-weight: 700; }
 .rds-lbl { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-
-.report-detail-subhead {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: .02em;
-  margin: 18px 0 8px;
-}
-.report-detail-subhead:first-child { margin-top: 0; }
 
 .report-detail-filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .report-detail-filters select {

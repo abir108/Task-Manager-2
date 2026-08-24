@@ -960,6 +960,11 @@ function loadInstructionsPanel(project) {
   content.innerHTML = project.instructions || "";
   content.contentEditable = isAdmin() ? "true" : "false";
   content.classList.toggle("readonly", !isAdmin());
+  // A saved selection Range from a previously-open project points at DOM
+  // nodes this innerHTML swap just discarded — drop it so a toolbar click
+  // made before the user has clicked/typed in this project's box doesn't
+  // silently restore a stale, disconnected Range.
+  savedInstructionsRange = null;
 }
 
 document.getElementById("instructions-content").addEventListener("blur", async () => {
@@ -1002,10 +1007,24 @@ function saveInstructionsSelection() {
 function restoreInstructionsSelection() {
   const content = document.getElementById("instructions-content");
   content.focus();
-  if (!savedInstructionsRange) return;
   const sel = window.getSelection();
-  sel.removeAllRanges();
-  try { sel.addRange(savedInstructionsRange); } catch (e) { /* stale range from a since-changed DOM */ }
+  if (savedInstructionsRange) {
+    sel.removeAllRanges();
+    try {
+      sel.addRange(savedInstructionsRange);
+      return;
+    } catch (e) { /* stale range from a since-changed DOM */ }
+  }
+  // No usable saved range (fresh project, or a toolbar click before the user
+  // clicked/typed here) — fall back to a caret at the end of the content so
+  // execCommand still has somewhere valid to apply the format.
+  if (sel.rangeCount === 0 || !content.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+    const range = document.createRange();
+    range.selectNodeContents(content);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
 }
 function wrapSelectionWithStyle(styleProp, value) {
   const sel = window.getSelection();
@@ -1126,6 +1145,14 @@ document.addEventListener("click", closeAllPopovers);
 document.addEventListener("mouseup", () => {
   groupDragArmed = false;
   document.querySelectorAll('.board-table-wrap[draggable="true"]').forEach(w => { w.draggable = false; });
+  // A task row's handle arms tr.draggable on mousedown so only that row (not
+  // the whole table) becomes a drag source; if the mouse comes up without a
+  // real drag (a plain click, or the gesture getting cancelled), dragend
+  // never fires to disarm it, which would leave that row permanently
+  // draggable and able to hijack an unrelated click/text-selection later.
+  document.querySelectorAll('.task-table tr[draggable="true"]').forEach(r => { r.draggable = false; });
+  dragTaskId = null;
+  dragGroupId = null;
 });
 
 function showPopover(anchor, fillFn) {
@@ -2228,9 +2255,7 @@ function openEmployeeDetail(row) {
     </div>
   `;
 
-  const breakdownHtml = `
-    <h3 class="report-detail-subhead">By project</h3>
-    ${breakdown.length ? `<div class="report-detail-list">` + breakdown.map(b => `
+  const projectsPanelHtml = breakdown.length ? `<div class="report-detail-list">` + breakdown.map(b => `
       <div class="report-detail-row" data-project="${b.project ? b.project.id : ""}">
         <div class="rdr-main">
           <span class="rdr-title">${b.project ? escapeHtml(b.project.name) : "Unknown project"}</span>
@@ -2241,16 +2266,14 @@ function openEmployeeDetail(row) {
           <span class="report-progress-txt">${b.pct}%</span>
         </div>
       </div>
-    `).join("") + `</div>` : `<p class="empty-hint">Not assigned to any project.</p>`}
-  `;
+    `).join("") + `</div>` : `<p class="empty-hint">Not assigned to any project.</p>`;
 
   const projectOptions = breakdown
     .filter(b => b.project)
     .map(b => `<option value="${b.project.id}">${escapeHtml(b.project.name)}</option>`)
     .join("");
 
-  const tasksHtml = `
-    <h3 class="report-detail-subhead">All assigned tasks</h3>
+  const tasksPanelHtml = `
     <div class="report-detail-filters">
       <select id="emp-detail-project-filter">
         <option value="">All projects</option>
@@ -2267,11 +2290,33 @@ function openEmployeeDetail(row) {
     <div id="emp-detail-task-list"></div>
   `;
 
+  const bodyHtml = `
+    ${summaryHtml}
+    <div class="report-detail-tabs view-toggle">
+      <button type="button" class="view-toggle-btn active" data-tab="projects">Projects (${row.projectCount})</button>
+      <button type="button" class="view-toggle-btn" data-tab="tasks">Tasks (${row.assignedCount})</button>
+    </div>
+    <div id="emp-detail-projects-panel">${projectsPanelHtml}</div>
+    <div id="emp-detail-tasks-panel" class="hidden">${tasksPanelHtml}</div>
+  `;
+
   openReportDetail(
     row.member.name,
     `${row.assignedCount} task${row.assignedCount === 1 ? "" : "s"} across ${row.projectCount} project${row.projectCount === 1 ? "" : "s"}`,
-    summaryHtml + breakdownHtml + tasksHtml
+    bodyHtml
   );
+
+  const projectsPanel = document.getElementById("emp-detail-projects-panel");
+  const tasksPanel = document.getElementById("emp-detail-tasks-panel");
+  document.querySelectorAll(".report-detail-tabs [data-tab]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".report-detail-tabs [data-tab]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const showProjects = btn.dataset.tab === "projects";
+      projectsPanel.classList.toggle("hidden", !showProjects);
+      tasksPanel.classList.toggle("hidden", showProjects);
+    });
+  });
 
   function applyEmployeeTaskFilters() {
     const projFilter = document.getElementById("emp-detail-project-filter").value;
