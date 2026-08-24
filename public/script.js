@@ -22,8 +22,6 @@ let notesModalTaskId = null;
 const expandedTasks = new Set();
 const collapsedGroups = new Set();
 const CATEGORY_KEYS = ["running", "query", "completed"];
-let dragTaskId = null;
-let dragGroupId = null;
 let dragGroupReorderId = null;
 let groupDragArmed = false;
 let projectsViewMode = localStorage.getItem("projectsViewMode") || "grid";
@@ -1145,14 +1143,6 @@ document.addEventListener("click", closeAllPopovers);
 document.addEventListener("mouseup", () => {
   groupDragArmed = false;
   document.querySelectorAll('.board-table-wrap[draggable="true"]').forEach(w => { w.draggable = false; });
-  // A task row's handle arms tr.draggable on mousedown so only that row (not
-  // the whole table) becomes a drag source; if the mouse comes up without a
-  // real drag (a plain click, or the gesture getting cancelled), dragend
-  // never fires to disarm it, which would leave that row permanently
-  // draggable and able to hijack an unrelated click/text-selection later.
-  document.querySelectorAll('.task-table tr[draggable="true"]').forEach(r => { r.draggable = false; });
-  dragTaskId = null;
-  dragGroupId = null;
 });
 
 function showPopover(anchor, fillFn) {
@@ -1510,6 +1500,82 @@ function buildGroupTable(group) {
   return wrap;
 }
 
+/* Custom mouse-driven reorder for top-level task rows (native HTML5 drag-and-drop
+   proved unreliable to grab/drop reliably across browsers). While the mouse is
+   down, the grabbed row (plus any subitem rows/add-subitem row that belong to
+   it) is moved live in the DOM as the cursor crosses a neighboring task's
+   midpoint, so the list visibly opens a gap and shifts as you drag -- the
+   final DOM order on mouseup is sent to the server. */
+function taskRowBlock(row) {
+  const els = [row];
+  let el = row.nextElementSibling;
+  while (el && (el.classList.contains("sub-row") || el.classList.contains("add-subitem-row-tr"))) {
+    els.push(el);
+    el = el.nextElementSibling;
+  }
+  return els;
+}
+
+function startTaskRowDrag(startEvent, tr) {
+  const tbody = tr.parentElement;
+  const draggedBlock = taskRowBlock(tr);
+  const startX = startEvent.clientX;
+  const startY = startEvent.clientY;
+  const THRESHOLD = 4;
+  let dragging = false;
+
+  function topRows() {
+    return Array.from(tbody.querySelectorAll(':scope > tr[data-task-id]:not(.sub-row)'));
+  }
+
+  function onMouseMove(e) {
+    if (!dragging) {
+      if (Math.abs(e.clientX - startX) < THRESHOLD && Math.abs(e.clientY - startY) < THRESHOLD) return;
+      dragging = true;
+      tr.classList.add("dragging");
+      document.body.classList.add("task-row-dragging");
+    }
+    for (const row of topRows()) {
+      if (row === tr) continue;
+      const block = taskRowBlock(row);
+      const firstRect = block[0].getBoundingClientRect();
+      const lastRect = block[block.length - 1].getBoundingClientRect();
+      const mid = (firstRect.top + lastRect.bottom) / 2;
+      // True when tr currently sits before row in DOM order (row "follows" tr).
+      const trBeforeRow = !!(tr.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (e.clientY < mid && !trBeforeRow) {
+        // tr is after row but the cursor is above row's midpoint -- move it up.
+        draggedBlock.forEach(el => tbody.insertBefore(el, row));
+        break;
+      }
+      if (e.clientY >= mid && trBeforeRow) {
+        // tr is before row but the cursor is past row's midpoint -- move it down.
+        const insertBeforeEl = block[block.length - 1].nextElementSibling;
+        draggedBlock.forEach(el => tbody.insertBefore(el, insertBeforeEl));
+        break;
+      }
+    }
+  }
+
+  async function onMouseUp() {
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+    document.body.classList.remove("task-row-dragging");
+    tr.classList.remove("dragging");
+    if (!dragging) return;
+    const topIds = topRows().map(r => r.dataset.taskId);
+    try {
+      await api("POST", "/api/tasks/reorder", { taskIds: topIds });
+    } catch (err) {
+      alert(err.message);
+    }
+    await loadAndRenderBoard();
+  }
+
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", onMouseUp);
+}
+
 function buildTaskRow(task, project, groupTasks, isSub, group) {
   const tr = document.createElement("tr");
   tr.dataset.taskId = task.id;
@@ -1527,51 +1593,12 @@ function buildTaskRow(task, project, groupTasks, isSub, group) {
     handle.className = "drag-handle";
     handle.innerHTML = "&#8942;&#8942;";
     handle.title = "Drag to reorder";
-    handle.addEventListener("mousedown", () => { tr.draggable = true; });
+    handle.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      startTaskRowDrag(e, tr);
+    });
     tdTask.appendChild(handle);
-
-    tr.addEventListener("dragstart", (e) => {
-      dragTaskId = task.id;
-      dragGroupId = group.id;
-      tr.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-    });
-    tr.addEventListener("dragend", () => {
-      tr.draggable = false;
-      tr.classList.remove("dragging");
-      document.querySelectorAll(".drag-over-before,.drag-over-after").forEach(el => el.classList.remove("drag-over-before", "drag-over-after"));
-      dragTaskId = null;
-      dragGroupId = null;
-    });
-    tr.addEventListener("dragover", (e) => {
-      if (dragTaskId === null || dragGroupId !== group.id) return;
-      e.preventDefault();
-      const rect = tr.getBoundingClientRect();
-      const before = (e.clientY - rect.top) < rect.height / 2;
-      tr.classList.toggle("drag-over-before", before);
-      tr.classList.toggle("drag-over-after", !before);
-    });
-    tr.addEventListener("dragleave", () => {
-      tr.classList.remove("drag-over-before", "drag-over-after");
-    });
-    tr.addEventListener("drop", async (e) => {
-      e.preventDefault();
-      tr.classList.remove("drag-over-before", "drag-over-after");
-      const draggedId = dragTaskId;
-      if (!draggedId || draggedId === task.id || dragGroupId !== group.id) return;
-      const rect = tr.getBoundingClientRect();
-      const before = (e.clientY - rect.top) < rect.height / 2;
-      const topIds = groupTasks.filter(t => !t.parentId).map(t => t.id);
-      const fromIdx = topIds.indexOf(draggedId);
-      if (fromIdx > -1) topIds.splice(fromIdx, 1);
-      let toIdx = topIds.indexOf(task.id);
-      if (!before) toIdx += 1;
-      topIds.splice(toIdx, 0, draggedId);
-      try {
-        await api("POST", "/api/tasks/reorder", { taskIds: topIds });
-      } catch (err) { alert(err.message); }
-      await loadAndRenderBoard();
-    });
   }
 
   if (!isSub) {
@@ -1786,6 +1813,7 @@ function buildTaskRow(task, project, groupTasks, isSub, group) {
 
 function buildAddSubitemRow(parentTask, group) {
   const tr = document.createElement("tr");
+  tr.classList.add("add-subitem-row-tr");
   const td = document.createElement("td");
   td.colSpan = 7;
   td.style.padding = "0";
