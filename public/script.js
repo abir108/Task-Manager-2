@@ -21,17 +21,14 @@ let boardNotes = [];
 let notesModalTaskId = null;
 const expandedTasks = new Set();
 const collapsedGroups = new Set();
-const collapsedCategories = new Set();
-const collapsedFolders = new Set();
 const CATEGORY_KEYS = ["running", "query", "completed"];
 let dragTaskId = null;
 let dragGroupId = null;
 let dragGroupReorderId = null;
 let groupDragArmed = false;
-let draggedProjectId = null;
 let projectsViewMode = localStorage.getItem("projectsViewMode") || "grid";
 let projectsFilter = "all";
-let sidebarSearchQuery = "";
+let projectsFolderFilter = "all";
 let projectsSearchQuery = "";
 
 function isAdmin() { return !!me && me.role === "admin"; }
@@ -50,11 +47,6 @@ document.getElementById("btn-theme-toggle").addEventListener("click", () => {
   const next = document.body.classList.contains("theme-dark") ? "light" : "dark";
   localStorage.setItem("theme", next);
   applyTheme(next);
-});
-
-document.getElementById("sidebar-search-input").addEventListener("input", (e) => {
-  sidebarSearchQuery = e.target.value.trim().toLowerCase();
-  renderSidebarTree();
 });
 
 function initialsOf(name) {
@@ -167,7 +159,6 @@ async function afterLogin() {
   categoryLabels = await api("GET", "/api/category-labels");
   folders = await api("GET", "/api/folders");
   await showView("dashboard");
-  renderSidebarTree();
 }
 
 async function tryResume() {
@@ -259,6 +250,17 @@ function attachProjectActions(el, project) {
         } catch (err) { alert(err.message); }
       });
     }
+    const folderSelect = el.querySelector('[data-action="folder"]');
+    if (folderSelect) {
+      folderSelect.addEventListener("click", e => e.stopPropagation());
+      folderSelect.addEventListener("change", async (e) => {
+        try {
+          const updated = await api("PATCH", `/api/projects/${project.id}`, { folderId: e.target.value || null });
+          project.folderId = updated.folderId;
+          await renderProjects();
+        } catch (err) { alert(err.message); }
+      });
+    }
     el.querySelector('[data-action="assign"]').addEventListener("click", (e) => {
       e.stopPropagation();
       openAssignModal(project.id);
@@ -331,17 +333,20 @@ async function renderProjects() {
   list.innerHTML = "";
   setProjectsViewMode(projectsViewMode);
   renderProjectsFilter();
+  renderFolderBar();
 
   if (projects.length === 0) {
     empty.textContent = isAdmin() ? 'No projects yet. Click "New Project" to create your first one.' : "You haven't been assigned to any projects yet.";
     empty.style.display = "block";
-    renderSidebarTree();
     return;
   }
 
   let filteredProjects = projectsFilter === "all"
     ? projects.filter(p => (p.category || "running") !== "archived")
     : projects.filter(p => (p.category || "running") === projectsFilter);
+  if (projectsFolderFilter !== "all") {
+    filteredProjects = filteredProjects.filter(p => p.folderId === projectsFolderFilter);
+  }
   if (projectsSearchQuery) {
     filteredProjects = filteredProjects.filter(p => p.name.toLowerCase().includes(projectsSearchQuery));
   }
@@ -351,7 +356,6 @@ async function renderProjects() {
       ? `No projects match "${projectsSearchQuery}".`
       : `No projects in "${categoryLabels[projectsFilter] || projectsFilter}".`;
     empty.style.display = "block";
-    renderSidebarTree();
     return;
   }
   empty.style.display = "none";
@@ -368,6 +372,10 @@ async function renderProjects() {
       .join("");
     const categorySelectHtml = isAdmin() ? `<select class="category-select" data-action="category">
         ${CATEGORY_KEYS.map(k => `<option value="${k}" ${k === category ? "selected" : ""}>${escapeHtml(categoryLabels[k] || k)}</option>`).join("")}
+      </select>` : "";
+    const folderSelectHtml = isAdmin() ? `<select class="folder-select" data-action="folder" title="Assign to folder">
+        <option value="">No folder</option>
+        ${folders.map(f => `<option value="${f.id}" ${f.id === project.folderId ? "selected" : ""}>${escapeHtml(f.name)}</option>`).join("")}
       </select>` : "";
     const actionButtonsHtml = `
       <button data-action="board">Open board</button>
@@ -388,7 +396,7 @@ async function renderProjects() {
       </div>
       <div class="meta-row">
         <div class="avatar-stack">${avatars || '<span style="color:var(--text-muted)">No teammates yet</span>'}</div>
-        ${categorySelectHtml}
+        ${categorySelectHtml}${folderSelectHtml}
       </div>
       <div class="card-actions">${actionButtonsHtml}</div>
     `;
@@ -403,14 +411,12 @@ async function renderProjects() {
       <span class="pr-meta">${projTasks.length} task${projTasks.length === 1 ? "" : "s"} · ${pct}%</span>
       <div class="pr-progress"><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%"></div></div></div>
       <div class="pr-avatars avatar-stack">${avatars}</div>
-      ${categorySelectHtml}
+      ${categorySelectHtml}${folderSelectHtml}
       <div class="card-actions">${actionButtonsHtml}</div>
     `;
     attachProjectActions(row, project);
     list.appendChild(row);
   });
-
-  renderSidebarTree();
 }
 
 /* ---------- Archived projects (admin only) ---------- */
@@ -452,7 +458,6 @@ async function renderArchivedPage() {
       try {
         await api("PATCH", `/api/projects/${project.id}`, { category: "running" });
         await renderArchivedPage();
-        renderSidebarTree();
       } catch (err) { alert(err.message); }
     });
     row.querySelector('[data-action="delete-permanent"]').addEventListener("click", async (e) => {
@@ -468,202 +473,54 @@ async function renderArchivedPage() {
   });
 }
 
-/* ---------- Sidebar project tree ---------- */
-function matchesSidebarSearch(p) {
-  if (!sidebarSearchQuery) return true;
-  return p.name.toLowerCase().includes(sidebarSearchQuery);
-}
-
-function makeTreeProjectLink(p) {
-  const link = document.createElement("div");
-  link.className = "tree-project-link" + (p.id === currentBoardProjectId ? " active" : "");
-  link.textContent = p.name;
-  link.title = p.name;
-  link.addEventListener("click", () => openBoard(p.id));
-  if (isAdmin()) {
-    link.draggable = true;
-    link.addEventListener("dragstart", (e) => {
-      draggedProjectId = p.id;
-      e.dataTransfer.effectAllowed = "move";
-    });
-    link.addEventListener("dragend", () => { draggedProjectId = null; });
-  }
-  return link;
-}
-
-function renderSidebarTree() {
-  const container = document.getElementById("sidebar-tree");
+/* ---------- Custom folders (tag-like; live on the Projects page) ---------- */
+function renderFolderBar() {
+  const container = document.getElementById("projects-folder-bar");
   container.innerHTML = "";
 
-  CATEGORY_KEYS.forEach(key => {
-    const catProjects = projects.filter(p => (p.category || "running") === key && matchesSidebarSearch(p));
-    if (sidebarSearchQuery && catProjects.length === 0) return;
-    const section = document.createElement("div");
-    section.className = "tree-category";
+  const allChip = document.createElement("button");
+  allChip.type = "button";
+  allChip.className = "folder-chip" + (projectsFolderFilter === "all" ? " active" : "");
+  allChip.innerHTML = `<span class="dot"></span>All folders`;
+  allChip.addEventListener("click", () => {
+    projectsFolderFilter = "all";
+    renderProjects();
+  });
+  container.appendChild(allChip);
 
-    const head = document.createElement("div");
-    head.className = "tree-category-head";
-    head.addEventListener("click", () => {
-      if (collapsedCategories.has(key)) collapsedCategories.delete(key);
-      else collapsedCategories.add(key);
-      renderSidebarTree();
-    });
+  folders.forEach(folder => {
+    const count = projects.filter(p => p.folderId === folder.id).length;
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "folder-chip" + (projectsFolderFilter === folder.id ? " active" : "");
+    chip.title = isAdmin() ? "Click to filter · double-click name to rename" : "Click to filter";
 
     const dot = document.createElement("span");
-    dot.className = "tree-dot " + key;
+    dot.className = "dot";
+    const label = document.createElement("span");
+    label.className = "folder-chip-label";
+    label.textContent = `${folder.name} (${count})`;
+    chip.append(dot, label);
 
-    const chevron = document.createElement("span");
-    chevron.className = "tree-chevron" + (collapsedCategories.has(key) ? " collapsed" : "");
-    chevron.innerHTML = "&#9662;";
-
-    const nameEl = document.createElement("span");
-    nameEl.className = "tree-category-name";
-    nameEl.textContent = categoryLabels[key] || key;
-    if (isAdmin()) {
-      nameEl.title = "Click to rename";
-      nameEl.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (nameEl.querySelector("input")) return;
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = categoryLabels[key];
-        nameEl.textContent = "";
-        nameEl.appendChild(input);
-        input.focus();
-        input.select();
-        const commit = async () => {
-          const v = input.value.trim();
-          if (v && v !== categoryLabels[key]) {
-            try {
-              categoryLabels = await api("PATCH", "/api/category-labels", { [key]: v });
-            } catch (err) { alert(err.message); }
-          }
-          renderSidebarTree();
-        };
-        input.addEventListener("blur", commit);
-        input.addEventListener("keydown", ev => { if (ev.key === "Enter") input.blur(); });
-        input.addEventListener("click", ev => ev.stopPropagation());
-      });
-    }
-
-    const countEl = document.createElement("span");
-    countEl.className = "tree-count";
-    countEl.textContent = catProjects.length;
-    countEl.title = catProjects.length + (catProjects.length === 1 ? " project" : " projects");
-
-    head.append(dot, chevron, nameEl, countEl);
-    section.appendChild(head);
-
-    if (isAdmin()) {
-      head.addEventListener("dragover", (e) => {
-        if (!draggedProjectId) return;
-        e.preventDefault();
-        head.classList.add("drag-over");
-      });
-      head.addEventListener("dragleave", () => head.classList.remove("drag-over"));
-      head.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        head.classList.remove("drag-over");
-        const pid = draggedProjectId;
-        if (!pid) return;
-        try {
-          const updated = await api("PATCH", `/api/projects/${pid}`, { category: key });
-          const proj = projects.find(x => x.id === pid);
-          if (proj) proj.category = updated.category;
-        } catch (err) { alert(err.message); }
-        renderSidebarTree();
-      });
-    }
-
-    if (!collapsedCategories.has(key)) {
-      const list = document.createElement("div");
-      list.className = "tree-projects";
-      if (catProjects.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "tree-empty";
-        empty.textContent = "Empty";
-        list.appendChild(empty);
-      } else {
-        catProjects.forEach(p => list.appendChild(makeTreeProjectLink(p)));
-      }
-      section.appendChild(list);
-    }
-
-    container.appendChild(section);
-  });
-
-  renderFolderTree(container);
-}
-
-/* ---------- Custom folders (sit alongside the fixed categories) ---------- */
-function renderFolderTree(container) {
-  const heading = document.createElement("div");
-  heading.className = "tree-folders-heading";
-  const headingLabel = document.createElement("span");
-  headingLabel.textContent = "FOLDERS";
-  heading.appendChild(headingLabel);
-  if (isAdmin()) {
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.className = "tree-folder-add-btn";
-    addBtn.textContent = "+";
-    addBtn.title = "New folder";
-    addBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      startNewFolderInput(container);
-    });
-    heading.appendChild(addBtn);
-  }
-  container.appendChild(heading);
-
-  const visibleFolders = folders.filter(f => {
-    if (!sidebarSearchQuery) return true;
-    return projects.some(p => p.folderId === f.id && matchesSidebarSearch(p));
-  });
-
-  if (visibleFolders.length === 0 && !sidebarSearchQuery) {
-    const empty = document.createElement("div");
-    empty.className = "tree-empty tree-folders-empty";
-    empty.textContent = isAdmin() ? "No folders yet. Click + to create one." : "No folders yet.";
-    container.appendChild(empty);
-  }
-
-  visibleFolders.forEach(folder => {
-    const folderProjects = projects.filter(p => p.folderId === folder.id && matchesSidebarSearch(p));
-    const section = document.createElement("div");
-    section.className = "tree-category tree-folder";
-
-    const head = document.createElement("div");
-    head.className = "tree-category-head";
-    head.addEventListener("click", () => {
-      if (collapsedFolders.has(folder.id)) collapsedFolders.delete(folder.id);
-      else collapsedFolders.add(folder.id);
-      renderSidebarTree();
+    chip.addEventListener("click", () => {
+      projectsFolderFilter = projectsFolderFilter === folder.id ? "all" : folder.id;
+      renderProjects();
     });
 
-    const dot = document.createElement("span");
-    dot.className = "tree-dot folder-dot";
-
-    const chevron = document.createElement("span");
-    chevron.className = "tree-chevron" + (collapsedFolders.has(folder.id) ? " collapsed" : "");
-    chevron.innerHTML = "&#9662;";
-
-    const nameEl = document.createElement("span");
-    nameEl.className = "tree-category-name";
-    nameEl.textContent = folder.name;
     if (isAdmin()) {
-      nameEl.title = "Click to rename";
-      nameEl.addEventListener("click", (e) => {
+      label.addEventListener("dblclick", (e) => {
         e.stopPropagation();
-        if (nameEl.querySelector("input")) return;
         const input = document.createElement("input");
         input.type = "text";
+        input.className = "folder-chip-new-input";
         input.value = folder.name;
-        nameEl.textContent = "";
-        nameEl.appendChild(input);
+        label.replaceWith(input);
         input.focus();
         input.select();
+        let committed = false;
         const commit = async () => {
+          if (committed) return;
+          committed = true;
           const v = input.value.trim();
           if (v && v !== folder.name) {
             try {
@@ -671,24 +528,19 @@ function renderFolderTree(container) {
               folder.name = updated.name;
             } catch (err) { alert(err.message); }
           }
-          renderSidebarTree();
+          renderFolderBar();
         };
         input.addEventListener("blur", commit);
-        input.addEventListener("keydown", ev => { if (ev.key === "Enter") input.blur(); });
+        input.addEventListener("keydown", ev => {
+          if (ev.key === "Enter") input.blur();
+          if (ev.key === "Escape" && !committed) { committed = true; renderFolderBar(); }
+        });
         input.addEventListener("click", ev => ev.stopPropagation());
       });
-    }
 
-    const countEl = document.createElement("span");
-    countEl.className = "tree-count";
-    countEl.textContent = folderProjects.length;
-
-    head.append(dot, chevron, nameEl, countEl);
-
-    if (isAdmin()) {
       const delBtn = document.createElement("button");
       delBtn.type = "button";
-      delBtn.className = "tree-folder-del-btn";
+      delBtn.className = "folder-chip-del";
       delBtn.innerHTML = "&times;";
       delBtn.title = "Delete folder";
       delBtn.addEventListener("click", async (e) => {
@@ -698,95 +550,51 @@ function renderFolderTree(container) {
           await api("DELETE", `/api/folders/${folder.id}`);
           folders = folders.filter(f => f.id !== folder.id);
           projects.forEach(p => { if (p.folderId === folder.id) p.folderId = null; });
+          if (projectsFolderFilter === folder.id) projectsFolderFilter = "all";
         } catch (err) { alert(err.message); return; }
-        renderSidebarTree();
+        renderProjects();
       });
-      head.appendChild(delBtn);
-
-      head.addEventListener("dragover", (e) => {
-        if (!draggedProjectId) return;
-        e.preventDefault();
-        head.classList.add("drag-over");
-      });
-      head.addEventListener("dragleave", () => head.classList.remove("drag-over"));
-      head.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        head.classList.remove("drag-over");
-        const pid = draggedProjectId;
-        if (!pid) return;
-        try {
-          const updated = await api("PATCH", `/api/projects/${pid}`, { folderId: folder.id });
-          const proj = projects.find(x => x.id === pid);
-          if (proj) proj.folderId = updated.folderId;
-        } catch (err) { alert(err.message); }
-        renderSidebarTree();
-      });
+      chip.appendChild(delBtn);
     }
 
-    section.appendChild(head);
-
-    if (!collapsedFolders.has(folder.id)) {
-      const list = document.createElement("div");
-      list.className = "tree-projects";
-      if (folderProjects.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "tree-empty";
-        empty.textContent = "Drag a project here";
-        list.appendChild(empty);
-      } else {
-        folderProjects.forEach(p => {
-          const row = document.createElement("div");
-          row.className = "tree-folder-project-row";
-          row.appendChild(makeTreeProjectLink(p));
-          if (isAdmin()) {
-            const removeBtn = document.createElement("button");
-            removeBtn.type = "button";
-            removeBtn.className = "tree-folder-remove-btn";
-            removeBtn.innerHTML = "&times;";
-            removeBtn.title = "Remove from folder";
-            removeBtn.addEventListener("click", async (e) => {
-              e.stopPropagation();
-              try {
-                await api("PATCH", `/api/projects/${p.id}`, { folderId: null });
-                p.folderId = null;
-              } catch (err) { alert(err.message); return; }
-              renderSidebarTree();
-            });
-            row.appendChild(removeBtn);
-          }
-          list.appendChild(row);
-        });
-      }
-      section.appendChild(list);
-    }
-
-    container.appendChild(section);
+    container.appendChild(chip);
   });
+
+  if (isAdmin()) {
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "folder-chip-add";
+    addBtn.textContent = "+ New folder";
+    addBtn.addEventListener("click", () => startNewFolderChipInput(container, addBtn));
+    container.appendChild(addBtn);
+  }
 }
 
-function startNewFolderInput(container) {
-  const row = document.createElement("div");
-  row.className = "tree-folder-new-row";
-  row.innerHTML = `<input type="text" placeholder="Folder name">`;
-  container.appendChild(row);
-  const input = row.querySelector("input");
+function startNewFolderChipInput(container, addBtn) {
+  addBtn.style.display = "none";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "folder-chip-new-input";
+  input.placeholder = "Folder name";
+  container.appendChild(input);
   input.focus();
   let committed = false;
   const commit = async () => {
     if (committed) return;
     committed = true;
     const name = input.value.trim();
-    row.remove();
+    input.remove();
+    addBtn.style.display = "";
     if (!name) return;
     try {
       const created = await api("POST", "/api/folders", { name });
       folders.push(created);
     } catch (err) { alert(err.message); return; }
-    renderSidebarTree();
+    renderFolderBar();
   };
   input.addEventListener("keydown", e => {
     if (e.key === "Enter") commit();
-    if (e.key === "Escape" && !committed) { committed = true; row.remove(); }
+    if (e.key === "Escape" && !committed) { committed = true; input.remove(); addBtn.style.display = ""; }
   });
   input.addEventListener("blur", commit);
 }
@@ -1077,7 +885,6 @@ document.getElementById("input-restore-file").addEventListener("change", async (
     categoryLabels = await api("GET", "/api/category-labels");
     folders = await api("GET", "/api/folders");
     projects = await api("GET", "/api/projects");
-    renderSidebarTree();
   } catch (err) {
     statusEl.textContent = "Restore failed: " + err.message;
     statusEl.classList.add("error");
@@ -1119,7 +926,6 @@ async function loadAndRenderBoard() {
   document.getElementById("board-title").textContent = project.name;
   document.getElementById("board-subtitle").textContent = project.desc || "";
   renderBoard();
-  renderSidebarTree();
   loadInstructionsPanel(project);
 }
 
