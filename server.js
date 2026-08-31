@@ -523,6 +523,14 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     status = req.body.status;
   }
 
+  let assigneeIds = [];
+  if (Array.isArray(req.body.assigneeIds)) {
+    const validIds = new Set(store.members.map(m => m.id));
+    assigneeIds = req.body.assigneeIds.filter(id => validIds.has(id));
+  }
+
+  const dueDate = req.body.dueDate !== undefined ? String(req.body.dueDate) : "";
+
   const siblingCount = store.tasks.filter(t => t.groupId === group.id && t.parentId === parentId).length;
   const task = {
     id: uid(),
@@ -530,9 +538,9 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     groupId: group.id,
     parentId,
     title,
-    assigneeIds: [],
+    assigneeIds,
     status,
-    dueDate: "",
+    dueDate,
     start: "",
     end: "",
     completedAt: null,
