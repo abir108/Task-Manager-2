@@ -19,7 +19,6 @@ let categoryLabels = { running: "Running Projects", query: "Sent to Query", comp
 let currentBoardProjectId = null;
 let boardNotes = [];
 let notesModalTaskId = null;
-const expandedTasks = new Set();
 const collapsedGroups = new Set();
 const CATEGORY_KEYS = ["running", "query", "completed"];
 let dragGroupReorderId = null;
@@ -925,6 +924,20 @@ async function loadAndRenderBoard() {
   document.getElementById("board-subtitle").textContent = project.desc || "";
   renderBoard();
   loadInstructionsPanel(project);
+
+  // Every task mutation (title/status/dates/owner/subitems) reloads the board
+  // through here, so if the task detail modal is open, refresh it in place
+  // from the freshly-fetched data instead of leaving it showing stale fields.
+  if (taskDetailContext && document.getElementById("modal-task-detail").classList.contains("open")) {
+    const openTask = tasks.find(t => t.id === taskDetailContext.taskId);
+    const openGroup = groups.find(g => g.id === taskDetailContext.groupId);
+    if (openTask && openGroup) {
+      openTaskDetailModal(openTask, openGroup, project, tasks.filter(t => t.groupId === openGroup.id));
+    } else {
+      closeModal("modal-task-detail");
+      taskDetailContext = null;
+    }
+  }
 }
 
 /* ---------- Project instructions panel (rich text) ---------- */
@@ -1243,6 +1256,7 @@ function renderStatusEditor(pop, task, group) {
     });
 
     row.addEventListener("click", async () => {
+      if (!task) return;
       try {
         await api("PATCH", `/api/tasks/${task.id}`, { status: s.id });
       } catch (err) { alert(err.message); }
@@ -1442,60 +1456,16 @@ function buildGroupTable(group) {
   wrap.appendChild(bar);
   if (isCollapsed) return wrap;
 
-  /* table */
-  const table = document.createElement("table");
-  table.className = "task-table";
-  table.innerHTML = `<thead><tr>
-    <th class="col-task">Task</th>
-    <th class="col-notes"></th>
-    <th class="col-owner">Owner</th>
-    <th class="col-status">Status</th>
-    <th class="col-due">Due date</th>
-    <th class="col-timeline">Timeline</th>
-    <th class="col-actions"></th>
-  </tr></thead>`;
-  const tbody = document.createElement("tbody");
-
-  topTasks.forEach(task => {
-    tbody.appendChild(buildTaskRow(task, project, groupTasks, false, group));
-    const subitems = groupTasks.filter(t => t.parentId === task.id);
-    if (expandedTasks.has(task.id)) {
-      subitems.forEach(sub => tbody.appendChild(buildTaskRow(sub, project, groupTasks, true, group)));
-      if (isAdmin()) tbody.appendChild(buildAddSubitemRow(task, group));
-    }
+  /* kanban board: one column per status */
+  const board = document.createElement("div");
+  board.className = "kanban-board";
+  board.dataset.groupId = group.id;
+  group.statuses.forEach(status => {
+    board.appendChild(buildKanbanColumn(status, group, topTasks, groupTasks, project));
   });
+  wrap.appendChild(board);
 
-  table.appendChild(tbody);
-  wrap.appendChild(table);
-
-  if (isAdmin()) {
-    const addRow = document.createElement("div");
-    addRow.className = "add-task-row";
-    addRow.innerHTML = `<span class="plus">+</span><input type="text" placeholder="Add task">`;
-    const addInput = addRow.querySelector("input");
-    addRow.addEventListener("click", () => addInput.focus());
-    addInput.addEventListener("keydown", async (e) => {
-      if (e.key !== "Enter") return;
-      const title = addInput.value.trim();
-      if (!title) return;
-      try {
-        await api("POST", "/api/tasks", { projectId: currentBoardProjectId, groupId: group.id, title });
-      } catch (err) { alert(err.message); }
-      addInput.value = "";
-      await loadAndRenderBoard();
-    });
-    wrap.appendChild(addRow);
-  }
-
-  wrap.appendChild(buildSummaryRow(groupTasks, group.statuses));
-
-  if (groupTasks.length === 0) {
-    const hint = document.createElement("p");
-    hint.className = "empty-hint";
-    hint.style.padding = "4px 16px 12px";
-    hint.textContent = isAdmin() ? 'No tasks yet. Use "+ Add task" above to create one.' : "No tasks in this group yet.";
-    wrap.appendChild(hint);
-  }
+  wrap.appendChild(buildKanbanSummaryRow(groupTasks, group.statuses));
 
   return wrap;
 }
@@ -1506,69 +1476,240 @@ function buildGroupTable(group) {
    it) is moved live in the DOM as the cursor crosses a neighboring task's
    midpoint, so the list visibly opens a gap and shifts as you drag -- the
    final DOM order on mouseup is sent to the server. */
-function taskRowBlock(row) {
-  const els = [row];
-  let el = row.nextElementSibling;
-  while (el && (el.classList.contains("sub-row") || el.classList.contains("add-subitem-row-tr"))) {
-    els.push(el);
-    el = el.nextElementSibling;
+/* ---------- Kanban board (one column per group status) ---------- */
+function buildKanbanColumn(status, group, topTasks, groupTasks, project) {
+  const colTasks = topTasks.filter(t => (t.status || group.statuses[0].id) === status.id);
+
+  const col = document.createElement("div");
+  col.className = "kanban-column";
+  col.dataset.statusId = status.id;
+
+  const header = document.createElement("div");
+  header.className = "kanban-col-header";
+  header.style.setProperty("--col-color", status.color);
+
+  const dot = document.createElement("span");
+  dot.className = "kanban-col-dot";
+  dot.style.background = status.color;
+
+  const label = document.createElement("span");
+  label.className = "kanban-col-label";
+  label.textContent = status.label;
+
+  const count = document.createElement("span");
+  count.className = "kanban-col-count";
+  count.textContent = colTasks.length;
+
+  header.append(dot, label, count);
+
+  if (isAdmin()) {
+    const gear = document.createElement("button");
+    gear.type = "button";
+    gear.className = "kanban-col-manage";
+    gear.innerHTML = "&#8942;";
+    gear.title = "Manage statuses";
+    gear.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showPopover(gear, (pop) => {
+        pop.classList.add("status-editor");
+        renderStatusEditor(pop, null, group);
+      });
+    });
+    header.appendChild(gear);
   }
-  return els;
+
+  col.appendChild(header);
+
+  const cardList = document.createElement("div");
+  cardList.className = "kanban-card-list";
+  colTasks.forEach(task => {
+    cardList.appendChild(buildTaskCard(task, group, project, groupTasks));
+  });
+  col.appendChild(cardList);
+
+  if (isAdmin()) {
+    const addRow = document.createElement("div");
+    addRow.className = "kanban-add-task";
+    addRow.innerHTML = `<span class="plus">+</span> Add Task`;
+    addRow.addEventListener("click", () => {
+      if (addRow.querySelector("input")) return;
+      addRow.innerHTML = "";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = "Task name";
+      addRow.appendChild(input);
+      input.focus();
+      let committed = false;
+      const commit = async () => {
+        if (committed) return;
+        committed = true;
+        const title = input.value.trim();
+        if (!title) { renderBoard(); return; }
+        try {
+          await api("POST", "/api/tasks", { projectId: currentBoardProjectId, groupId: group.id, title, status: status.id });
+        } catch (err) { alert(err.message); }
+        await loadAndRenderBoard();
+      };
+      input.addEventListener("keydown", e => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape" && !committed) { committed = true; renderBoard(); }
+      });
+      input.addEventListener("blur", commit);
+    });
+    col.appendChild(addRow);
+  }
+
+  return col;
 }
 
-function startTaskRowDrag(startEvent, tr) {
-  const tbody = tr.parentElement;
-  const draggedBlock = taskRowBlock(tr);
+function buildTaskCard(task, group, project, groupTasks) {
+  const assigneeIds = task.assigneeIds || [];
+  const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
+  const subitems = groupTasks.filter(t => t.parentId === task.id);
+  const subDone = subitems.filter(t => t.status === "done").length;
+  const noteCount = boardNotes.filter(n => n.taskId === task.id).length;
+  const urgency = getUrgency(task.dueDate, task.status === "done");
+  const canDrag = isAdmin() || (!!me && assigneeIds.includes(me.id));
+
+  const card = document.createElement("div");
+  card.className = "kanban-card";
+  card.dataset.taskId = task.id;
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "kanban-card-title";
+  titleEl.textContent = task.title;
+  card.appendChild(titleEl);
+
+  const meta = document.createElement("div");
+  meta.className = "kanban-card-meta";
+
+  if (task.dueDate) {
+    const due = document.createElement("span");
+    due.className = "kanban-card-due urgency-" + urgency.cls;
+    due.textContent = formatDate(task.dueDate);
+    meta.appendChild(due);
+  }
+  if (subitems.length > 0) {
+    const subBadge = document.createElement("span");
+    subBadge.className = "kanban-card-sub";
+    subBadge.innerHTML = `&#10003; ${subDone}/${subitems.length}`;
+    meta.appendChild(subBadge);
+  }
+  if (noteCount > 0) {
+    const noteBadge = document.createElement("span");
+    noteBadge.className = "kanban-card-notes";
+    noteBadge.innerHTML = `${ICON_CHAT}${noteCount}`;
+    meta.appendChild(noteBadge);
+  }
+  if (assignedMembers.length > 0) {
+    const avatars = document.createElement("div");
+    avatars.className = "kanban-card-avatars";
+    avatars.innerHTML = assignedMembers.map(m => avatarHtml(m)).join("");
+    meta.appendChild(avatars);
+  }
+  card.appendChild(meta);
+
+  if (isAdmin()) {
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "kanban-card-del";
+    delBtn.innerHTML = "&times;";
+    delBtn.title = "Delete task";
+    delBtn.addEventListener("mousedown", e => e.stopPropagation());
+    delBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try { await api("DELETE", `/api/tasks/${task.id}`); } catch (err) { alert(err.message); }
+      await loadAndRenderBoard();
+    });
+    card.appendChild(delBtn);
+  }
+
+  card.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest(".kanban-card-del")) return;
+    e.preventDefault();
+    startKanbanCardDrag(e, card, task, group, canDrag, project, groupTasks);
+  });
+
+  return card;
+}
+
+/* Grabbing a card (mousedown+move past a small threshold) live-moves it
+   between/within kanban-card-list containers as the cursor crosses a
+   neighboring card's midpoint or a different column's bounds -- mirrors the
+   same "no real native drag-and-drop" approach used for group reordering,
+   which proved far more reliable than HTML5 drag-and-drop in practice. A
+   mousedown+mouseup with no real movement is treated as a click and opens
+   the task detail modal instead. */
+function startKanbanCardDrag(startEvent, card, task, group, canDrag, project, groupTasks) {
   const startX = startEvent.clientX;
   const startY = startEvent.clientY;
   const THRESHOLD = 4;
   let dragging = false;
 
-  function topRows() {
-    return Array.from(tbody.querySelectorAll(':scope > tr[data-task-id]:not(.sub-row)'));
+  function allColumns() {
+    return Array.from(document.querySelectorAll(`.kanban-board[data-group-id="${group.id}"] .kanban-column`));
+  }
+  function cardsIn(colEl) {
+    return Array.from(colEl.querySelector(".kanban-card-list").children);
   }
 
   function onMouseMove(e) {
     if (!dragging) {
+      if (!canDrag) return;
       if (Math.abs(e.clientX - startX) < THRESHOLD && Math.abs(e.clientY - startY) < THRESHOLD) return;
       dragging = true;
-      tr.classList.add("dragging");
+      card.classList.add("dragging");
       document.body.classList.add("task-row-dragging");
     }
-    for (const row of topRows()) {
-      if (row === tr) continue;
-      const block = taskRowBlock(row);
-      const firstRect = block[0].getBoundingClientRect();
-      const lastRect = block[block.length - 1].getBoundingClientRect();
-      const mid = (firstRect.top + lastRect.bottom) / 2;
-      // True when tr currently sits before row in DOM order (row "follows" tr).
-      const trBeforeRow = !!(tr.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING);
-      if (e.clientY < mid && !trBeforeRow) {
-        // tr is after row but the cursor is above row's midpoint -- move it up.
-        draggedBlock.forEach(el => tbody.insertBefore(el, row));
-        break;
-      }
-      if (e.clientY >= mid && trBeforeRow) {
-        // tr is before row but the cursor is past row's midpoint -- move it down.
-        const insertBeforeEl = block[block.length - 1].nextElementSibling;
-        draggedBlock.forEach(el => tbody.insertBefore(el, insertBeforeEl));
+    let targetCol = null;
+    for (const col of allColumns()) {
+      const r = col.querySelector(".kanban-card-list").getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right) { targetCol = col; break; }
+    }
+    if (!targetCol) return;
+    const listEl = targetCol.querySelector(".kanban-card-list");
+    const siblings = cardsIn(targetCol).filter(c => c !== card);
+    let inserted = false;
+    for (const sib of siblings) {
+      const r = sib.getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) {
+        listEl.insertBefore(card, sib);
+        inserted = true;
         break;
       }
     }
+    if (!inserted) listEl.appendChild(card);
   }
 
   async function onMouseUp() {
     document.removeEventListener("mousemove", onMouseMove);
     document.removeEventListener("mouseup", onMouseUp);
     document.body.classList.remove("task-row-dragging");
-    tr.classList.remove("dragging");
-    if (!dragging) return;
-    const topIds = topRows().map(r => r.dataset.taskId);
-    try {
-      await api("POST", "/api/tasks/reorder", { taskIds: topIds });
-    } catch (err) {
-      alert(err.message);
+    card.classList.remove("dragging");
+    if (!dragging) {
+      openTaskDetailModal(task, group, project, groupTasks);
+      return;
     }
+    const newStatusId = card.closest(".kanban-column").dataset.statusId;
+    const statusChanged = newStatusId !== task.status;
+
+    if (!isAdmin()) {
+      if (statusChanged) {
+        try { await api("PATCH", `/api/tasks/${task.id}`, { status: newStatusId }); } catch (err) { alert(err.message); }
+      }
+      await loadAndRenderBoard();
+      return;
+    }
+
+    try {
+      if (statusChanged) {
+        await api("PATCH", `/api/tasks/${task.id}`, { status: newStatusId });
+      }
+      const topIds = [];
+      allColumns().forEach(col => cardsIn(col).forEach(c => topIds.push(c.dataset.taskId)));
+      await api("POST", "/api/tasks/reorder", { taskIds: topIds });
+    } catch (err) { alert(err.message); }
     await loadAndRenderBoard();
   }
 
@@ -1576,268 +1717,201 @@ function startTaskRowDrag(startEvent, tr) {
   document.addEventListener("mouseup", onMouseUp);
 }
 
-function buildTaskRow(task, project, groupTasks, isSub, group) {
-  const tr = document.createElement("tr");
-  tr.dataset.taskId = task.id;
-  if (isSub) tr.classList.add("sub-row");
+function buildKanbanSummaryRow(tasksArr, groupStatuses) {
+  const row = document.createElement("div");
+  row.className = "kanban-summary-row";
 
-  const assigneeIds = task.assigneeIds || [];
-  const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
-  const statusDef = group.statuses.find(s => s.id === task.status) || group.statuses[0];
+  const label = document.createElement("span");
+  label.className = "kanban-summary-label";
+  label.textContent = "Overall";
+  row.appendChild(label);
 
-  const tdTask = document.createElement("td");
-  tdTask.className = "cell-task";
-
-  if (!isSub && isAdmin()) {
-    const handle = document.createElement("span");
-    handle.className = "drag-handle";
-    handle.innerHTML = "&#8942;&#8942;";
-    handle.title = "Drag to reorder";
-    handle.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      startTaskRowDrag(e, tr);
-    });
-    tdTask.appendChild(handle);
-  }
-
-  if (!isSub) {
-    const isExpanded = expandedTasks.has(task.id);
-    const toggle = document.createElement("button");
-    toggle.className = "task-toggle";
-    toggle.innerHTML = isExpanded ? "&#9662;" : "&#9656;";
-    toggle.title = "Expand/collapse subitems";
-    toggle.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (expandedTasks.has(task.id)) expandedTasks.delete(task.id);
-      else expandedTasks.add(task.id);
-      renderBoard();
-    });
-    tdTask.appendChild(toggle);
-  }
-
-  const titleSpan = document.createElement("span");
-  titleSpan.className = "task-title-text";
-  titleSpan.textContent = task.title;
-  tdTask.appendChild(titleSpan);
-
-  if (isAdmin()) {
-    tdTask.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (tdTask.querySelector("input")) return;
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = task.title;
-      tdTask.innerHTML = "";
-      tdTask.appendChild(input);
-      input.focus();
-      input.select();
-      const commit = async () => {
-        const v = input.value.trim();
-        if (v && v !== task.title) {
-          try { await api("PATCH", `/api/tasks/${task.id}`, { title: v }); } catch (err) { alert(err.message); }
-        }
-        await loadAndRenderBoard();
-      };
-      input.addEventListener("blur", commit);
-      input.addEventListener("keydown", ev => { if (ev.key === "Enter") input.blur(); });
-    });
-  }
-
-  const tdNotes = document.createElement("td");
-  tdNotes.className = "cell-notes";
-  const noteCount = boardNotes.filter(n => n.taskId === task.id).length;
-  const noteBtn = document.createElement("button");
-  noteBtn.type = "button";
-  noteBtn.className = "note-btn" + (noteCount > 0 ? " has-notes" : "");
-  noteBtn.title = "Updates";
-  noteBtn.innerHTML = `${ICON_CHAT}${noteCount > 0 ? `<span class="note-count">${noteCount}</span>` : ""}`;
-  noteBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openNotesModal(task);
-  });
-  tdNotes.appendChild(noteBtn);
-
-  const tdOwner = document.createElement("td");
-  const ownerCell = document.createElement("div");
-  ownerCell.className = "owner-cell";
-  if (assignedMembers.length > 0) {
-    const stack = assignedMembers.map(m => avatarHtml(m)).join("");
-    const names = assignedMembers.map(m => m.name).join(", ");
-    ownerCell.innerHTML = `<div class="owner-avatars">${stack}</div><span class="owner-names" title="${escapeHtml(names)}">${escapeHtml(names)}</span>`;
+  const barWrap = document.createElement("div");
+  barWrap.className = "kanban-summary-bar";
+  if (tasksArr.length === 0) {
+    barWrap.classList.add("empty");
   } else {
-    ownerCell.innerHTML = isAdmin()
-      ? `<span class="add-owner">+</span><span>Assign</span>`
-      : `<span>Unassigned</span>`;
-  }
-  if (isAdmin()) {
-    ownerCell.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const eligible = project.memberIds.map(mid => team.find(m => m.id === mid)).filter(Boolean);
-      showPopover(ownerCell, (pop) => {
-        if (eligible.length === 0) {
-          pop.innerHTML = `<div class="popover-item" style="cursor:default;color:var(--text-muted)">Assign teammates to this project first</div>`;
-          return;
-        }
-        let selected = new Set(assigneeIds);
-        pop.innerHTML = eligible.map(m => `<div class="popover-item checkbox-item" data-id="${m.id}">
-            <span style="display:flex;align-items:center;gap:8px">
-              ${avatarHtml(m, "margin-left:0;width:20px;height:20px;font-size:10px;border:none")}
-              ${escapeHtml(m.name)}
-            </span>
-            <input type="checkbox" ${selected.has(m.id) ? "checked" : ""}>
-          </div>`).join("");
-        pop.querySelectorAll(".popover-item[data-id]").forEach(item => {
-          const checkbox = item.querySelector("input");
-          const toggle = () => {
-            const id = item.dataset.id;
-            if (selected.has(id)) selected.delete(id); else selected.add(id);
-            checkbox.checked = selected.has(id);
-          };
-          item.addEventListener("click", (ev) => { if (ev.target !== checkbox) toggle(); });
-          checkbox.addEventListener("click", ev => ev.stopPropagation());
-          checkbox.addEventListener("change", toggle);
-        });
-        const doneBtn = document.createElement("button");
-        doneBtn.className = "popover-owner-done";
-        doneBtn.textContent = "Done";
-        doneBtn.addEventListener("click", async () => {
-          try {
-            await api("PATCH", `/api/tasks/${task.id}`, { assigneeIds: Array.from(selected) });
-          } catch (err) { alert(err.message); }
-          closeAllPopovers();
-          await loadAndRenderBoard();
-        });
-        pop.appendChild(doneBtn);
-      });
+    groupStatuses.forEach(s => {
+      const count = tasksArr.filter(t => (groupStatuses.find(x => x.id === t.status) || groupStatuses[0]).id === s.id).length;
+      if (!count) return;
+      const seg = document.createElement("span");
+      seg.style.width = ((count / tasksArr.length) * 100) + "%";
+      seg.style.background = s.color;
+      barWrap.appendChild(seg);
     });
-  } else {
-    ownerCell.style.cursor = "default";
   }
-  tdOwner.appendChild(ownerCell);
+  row.appendChild(barWrap);
 
-  const tdStatus = document.createElement("td");
-  const statusPill = document.createElement("span");
-  statusPill.className = "status-pill";
-  statusPill.style.background = statusDef.color;
-  statusPill.textContent = statusDef.label;
+  const done = tasksArr.filter(t => t.status === "done").length;
+  const pctText = document.createElement("span");
+  pctText.className = "kanban-summary-pct";
+  pctText.textContent = `${done}/${tasksArr.length}`;
+  row.appendChild(pctText);
 
-  const canEditStatus = isAdmin() || (!!me && assigneeIds.includes(me.id));
-  if (canEditStatus) {
-    statusPill.addEventListener("click", (e) => {
-      e.stopPropagation();
-      showPopover(statusPill, (pop) => {
-        if (isAdmin()) {
-          pop.classList.add("status-editor");
-          renderStatusEditor(pop, task, group);
-        } else {
-          renderStatusPicker(pop, task, group);
-        }
-      });
-    });
-  } else {
-    statusPill.classList.add("readonly");
-  }
-  tdStatus.appendChild(statusPill);
-
-  const tdDue = document.createElement("td");
-  tdDue.className = "cell-due";
-  const duePill = document.createElement("span");
-  duePill.className = "due-pill" + (task.dueDate ? " has-date" : "");
-  duePill.textContent = task.dueDate ? formatDate(task.dueDate) : (isAdmin() ? "Set date" : "—");
-  if (isAdmin()) {
-    duePill.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const input = document.createElement("input");
-      input.type = "date";
-      input.value = task.dueDate || "";
-      tdDue.innerHTML = "";
-      tdDue.appendChild(input);
-      input.focus();
-      if (input.showPicker) { try { input.showPicker(); } catch (err) {} }
-      const commit = async () => {
-        try { await api("PATCH", `/api/tasks/${task.id}`, { dueDate: input.value }); } catch (err) { alert(err.message); }
-        await loadAndRenderBoard();
-      };
-      input.addEventListener("change", commit);
-      input.addEventListener("blur", commit);
-    });
-  } else {
-    duePill.style.cursor = "default";
-  }
-  tdDue.appendChild(duePill);
-
-  const tdTimeline = document.createElement("td");
-  tdTimeline.className = "timeline-cell";
-  tdTimeline.appendChild(buildTimelineEl(task, groupTasks));
-  if (isAdmin()) {
-    tdTimeline.addEventListener("click", (e) => {
-      e.stopPropagation();
-      showPopover(tdTimeline, (pop) => {
-        pop.classList.add("popover-timeline");
-        pop.innerHTML = `
-          <label>Start date<input type="date" id="pop-start" value="${task.start || ""}"></label>
-          <label>End date<input type="date" id="pop-end" value="${task.end || ""}"></label>
-          <button class="btn btn-primary" id="pop-save">Save</button>
-        `;
-        pop.querySelector("#pop-save").addEventListener("click", async () => {
-          const start = pop.querySelector("#pop-start").value;
-          const end = pop.querySelector("#pop-end").value;
-          try { await api("PATCH", `/api/tasks/${task.id}`, { start, end }); } catch (err) { alert(err.message); }
-          closeAllPopovers();
-          await loadAndRenderBoard();
-        });
-      });
-    });
-  } else {
-    tdTimeline.style.cursor = "default";
+  const range = tasksArr.some(t => t.start && t.end) ? getOverallRange(tasksArr) : null;
+  if (range) {
+    const rangeText = document.createElement("span");
+    rangeText.className = "kanban-summary-range";
+    rangeText.textContent = formatDate(new Date(range.min).toISOString().slice(0, 10)) + " – " + formatDate(new Date(range.max).toISOString().slice(0, 10));
+    row.appendChild(rangeText);
   }
 
-  const tdActions = document.createElement("td");
-  if (isAdmin()) {
-    const delBtn = document.createElement("button");
-    delBtn.className = "row-del";
-    delBtn.innerHTML = "&times;";
-    delBtn.title = "Delete task";
-    delBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      try { await api("DELETE", `/api/tasks/${task.id}`); } catch (err) { alert(err.message); }
+  return row;
+}
+
+/* ---------- Task detail modal (title/status/owner/dates/subitems/updates) ---------- */
+let taskDetailContext = null;
+
+function openTaskDetailModal(task, group, project, groupTasks) {
+  taskDetailContext = { taskId: task.id, groupId: group.id };
+  const editable = isAdmin();
+  const canEditStatus = isAdmin() || (!!me && (task.assigneeIds || []).includes(me.id));
+
+  const titleInput = document.getElementById("td-title");
+  titleInput.value = task.title;
+  titleInput.disabled = !editable;
+
+  const statusSelect = document.getElementById("td-status");
+  statusSelect.innerHTML = group.statuses.map(s => `<option value="${s.id}" ${s.id === task.status ? "selected" : ""}>${escapeHtml(s.label)}</option>`).join("");
+  statusSelect.disabled = !canEditStatus;
+
+  const dueInput = document.getElementById("td-due");
+  const startInput = document.getElementById("td-start");
+  const endInput = document.getElementById("td-end");
+  dueInput.value = task.dueDate || "";
+  startInput.value = task.start || "";
+  endInput.value = task.end || "";
+  [dueInput, startInput, endInput].forEach(inp => inp.disabled = !editable);
+
+  renderTdOwnerList(task, project, editable);
+  renderTdSubitemsList(task, group, groupTasks);
+
+  const notesBtn = document.getElementById("td-updates-btn");
+  notesBtn.textContent = `Updates (${boardNotes.filter(n => n.taskId === task.id).length})`;
+
+  openModal("modal-task-detail");
+}
+
+function renderTdOwnerList(task, project, editable) {
+  const container = document.getElementById("td-owner-list");
+  const eligible = project.memberIds.map(mid => team.find(m => m.id === mid)).filter(Boolean);
+  const selected = new Set(task.assigneeIds || []);
+  if (eligible.length === 0) {
+    container.innerHTML = `<p class="empty-hint" style="margin:0">Assign teammates to this project first.</p>`;
+    return;
+  }
+  container.innerHTML = eligible.map(m => `
+    <label class="td-owner-item">
+      <input type="checkbox" value="${m.id}" ${selected.has(m.id) ? "checked" : ""} ${editable ? "" : "disabled"}>
+      ${avatarHtml(m, "margin-left:0;width:22px;height:22px;font-size:10px;border:none")}
+      <span>${escapeHtml(m.name)}</span>
+    </label>
+  `).join("");
+  if (!editable) return;
+  container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener("change", async () => {
+      const ids = Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(c => c.value);
+      try { await api("PATCH", `/api/tasks/${task.id}`, { assigneeIds: ids }); } catch (err) { alert(err.message); }
       await loadAndRenderBoard();
     });
-    tdActions.appendChild(delBtn);
-  }
-
-  tr.append(tdTask, tdNotes, tdOwner, tdStatus, tdDue, tdTimeline, tdActions);
-  return tr;
-}
-
-function buildAddSubitemRow(parentTask, group) {
-  const tr = document.createElement("tr");
-  tr.classList.add("add-subitem-row-tr");
-  const td = document.createElement("td");
-  td.colSpan = 7;
-  td.style.padding = "0";
-
-  const row = document.createElement("div");
-  row.className = "add-subitem-row";
-  row.innerHTML = `<span class="plus">+</span><input type="text" placeholder="Add subitem">`;
-  const input = row.querySelector("input");
-  row.addEventListener("click", () => input.focus());
-  input.addEventListener("keydown", async (e) => {
-    if (e.key !== "Enter") return;
-    const title = input.value.trim();
-    if (!title) return;
-    try {
-      await api("POST", "/api/tasks", { projectId: currentBoardProjectId, groupId: group.id, title, parentId: parentTask.id });
-    } catch (err) { alert(err.message); }
-    input.value = "";
-    await loadAndRenderBoard();
   });
-
-  td.appendChild(row);
-  tr.appendChild(td);
-  return tr;
 }
+
+function renderTdSubitemsList(task, group, groupTasks) {
+  const container = document.getElementById("td-subitems-list");
+  const subitems = groupTasks.filter(t => t.parentId === task.id);
+  if (subitems.length === 0) {
+    container.innerHTML = `<p class="empty-hint" style="margin:4px 0">No subitems yet.</p>`;
+    return;
+  }
+  container.innerHTML = "";
+  subitems.forEach(sub => {
+    const statusDef = group.statuses.find(s => s.id === sub.status) || group.statuses[0];
+    const row = document.createElement("div");
+    row.className = "td-subitem-row";
+    row.innerHTML = `
+      <span class="td-subitem-title">${escapeHtml(sub.title)}</span>
+      <span class="status-pill td-subitem-status" style="background:${statusDef.color}">${escapeHtml(statusDef.label)}</span>
+      ${isAdmin() ? `<button type="button" class="td-subitem-del" title="Delete subitem">&times;</button>` : ""}
+    `;
+    const canEditSubStatus = isAdmin() || (!!me && (sub.assigneeIds || []).includes(me.id));
+    const pill = row.querySelector(".td-subitem-status");
+    if (canEditSubStatus) {
+      pill.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showPopover(pill, (pop) => {
+          if (isAdmin()) { pop.classList.add("status-editor"); renderStatusEditor(pop, sub, group); }
+          else renderStatusPicker(pop, sub, group);
+        });
+      });
+    } else {
+      pill.classList.add("readonly");
+    }
+    const delBtn = row.querySelector(".td-subitem-del");
+    if (delBtn) {
+      delBtn.addEventListener("click", async () => {
+        try { await api("DELETE", `/api/tasks/${sub.id}`); } catch (err) { alert(err.message); }
+        await loadAndRenderBoard();
+      });
+    }
+    container.appendChild(row);
+  });
+}
+
+document.getElementById("td-title").addEventListener("blur", async (e) => {
+  if (!taskDetailContext || !isAdmin()) return;
+  const v = e.target.value.trim();
+  const task = tasks.find(t => t.id === taskDetailContext.taskId);
+  if (!task || !v || v === task.title) return;
+  try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, { title: v }); } catch (err) { alert(err.message); }
+  await loadAndRenderBoard();
+});
+document.getElementById("td-title").addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
+
+document.getElementById("td-status").addEventListener("change", async (e) => {
+  if (!taskDetailContext) return;
+  try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, { status: e.target.value }); } catch (err) { alert(err.message); }
+  await loadAndRenderBoard();
+});
+document.getElementById("td-due").addEventListener("change", async (e) => {
+  if (!taskDetailContext) return;
+  try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, { dueDate: e.target.value }); } catch (err) { alert(err.message); }
+  await loadAndRenderBoard();
+});
+document.getElementById("td-start").addEventListener("change", async (e) => {
+  if (!taskDetailContext) return;
+  try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, { start: e.target.value }); } catch (err) { alert(err.message); }
+  await loadAndRenderBoard();
+});
+document.getElementById("td-end").addEventListener("change", async (e) => {
+  if (!taskDetailContext) return;
+  try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, { end: e.target.value }); } catch (err) { alert(err.message); }
+  await loadAndRenderBoard();
+});
+document.getElementById("td-updates-btn").addEventListener("click", () => {
+  if (!taskDetailContext) return;
+  const task = tasks.find(t => t.id === taskDetailContext.taskId);
+  if (task) openNotesModal(task);
+});
+document.getElementById("td-delete-btn").addEventListener("click", async () => {
+  if (!taskDetailContext) return;
+  if (!confirm("Delete this task and all its subitems?")) return;
+  try { await api("DELETE", `/api/tasks/${taskDetailContext.taskId}`); } catch (err) { alert(err.message); }
+  closeModal("modal-task-detail");
+  taskDetailContext = null;
+  await loadAndRenderBoard();
+});
+document.getElementById("td-add-subitem-input").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter" || !taskDetailContext) return;
+  const input = e.target;
+  const title = input.value.trim();
+  if (!title) return;
+  try {
+    await api("POST", "/api/tasks", { projectId: currentBoardProjectId, groupId: taskDetailContext.groupId, title, parentId: taskDetailContext.taskId });
+  } catch (err) { alert(err.message); }
+  input.value = "";
+  await loadAndRenderBoard();
+});
 
 /* ---------- Task updates / notes with attachments ---------- */
 async function apiUpload(url, formData) {

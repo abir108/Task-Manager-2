@@ -518,6 +518,11 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     parentId = parent.id;
   }
 
+  let status = group.statuses[0].id;
+  if (req.body.status !== undefined && group.statuses.some(s => s.id === req.body.status)) {
+    status = req.body.status;
+  }
+
   const siblingCount = store.tasks.filter(t => t.groupId === group.id && t.parentId === parentId).length;
   const task = {
     id: uid(),
@@ -526,7 +531,7 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     parentId,
     title,
     assigneeIds: [],
-    status: group.statuses[0].id,
+    status,
     dueDate: "",
     start: "",
     end: "",

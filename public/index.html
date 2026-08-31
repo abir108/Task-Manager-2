@@ -336,6 +336,52 @@
 
 <!-- ===== MODALS ===== -->
 
+<div class="modal-overlay" id="modal-task-detail">
+  <div class="modal task-detail-modal">
+    <input type="text" id="td-title" class="td-title-input" placeholder="Task title">
+
+    <div class="td-field-grid">
+      <div class="td-field">
+        <label>Status</label>
+        <select id="td-status"></select>
+      </div>
+      <div class="td-field">
+        <label>Due date</label>
+        <input type="date" id="td-due">
+      </div>
+      <div class="td-field">
+        <label>Start date</label>
+        <input type="date" id="td-start">
+      </div>
+      <div class="td-field">
+        <label>End date</label>
+        <input type="date" id="td-end">
+      </div>
+    </div>
+
+    <div class="td-field">
+      <label>Owner</label>
+      <div id="td-owner-list" class="td-owner-list"></div>
+    </div>
+
+    <div class="td-field">
+      <label>Subitems</label>
+      <div id="td-subitems-list" class="td-subitems-list"></div>
+      <div class="td-add-subitem admin-only">
+        <span class="plus">+</span>
+        <input type="text" id="td-add-subitem-input" placeholder="Add subitem">
+      </div>
+    </div>
+
+    <button type="button" class="btn btn-ghost td-updates-btn" id="td-updates-btn">Updates</button>
+
+    <div class="modal-actions td-actions">
+      <button class="btn btn-ghost danger admin-only" id="td-delete-btn">Delete task</button>
+      <button class="btn btn-primary" data-close="modal-task-detail">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-notes">
   <div class="modal notes-modal">
     <h2 id="notes-modal-title">Updates</h2>
