@@ -42,17 +42,21 @@ function load() {
   if (!fs.existsSync(DATA_FILE)) {
     const store = emptyStore();
     const adminPin = "1234";
+    const adminEmail = "admin@cloudtechaccounting.com";
+    const adminPassword = "cloudtech1122";
     store.members.push({
       id: uid(),
       name: "Admin",
       pinHash: bcrypt.hashSync(adminPin, 10),
+      email: adminEmail,
+      passwordHash: bcrypt.hashSync(adminPassword, 10),
       role: "admin",
       createdAt: Date.now()
     });
     fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
     fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
-    console.log(`\nFirst run: created default admin login -> name "Admin", PIN "${adminPin}".`);
-    console.log("Log in and change this PIN immediately from the Team page.\n");
+    console.log(`\nFirst run: created default admin login -> email "${adminEmail}", password "${adminPassword}" (also name "Admin", PIN "${adminPin}").`);
+    console.log("Log in and change this password immediately from Edit Profile.\n");
     return store;
   }
   const raw = fs.readFileSync(DATA_FILE, "utf8");

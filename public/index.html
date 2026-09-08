@@ -15,17 +15,28 @@
       <span class="brand-name">CloudTech Bookkeeping</span>
       <span class="org-name">Project Manager</span>
     </div>
-    <p class="subtitle">Sign in with your email and password</p>
+    <p class="subtitle" id="login-subtitle">Sign in with your email and password</p>
 
-    <label>Email
-      <input type="email" id="login-email" autocomplete="username" placeholder="you@company.com">
-    </label>
-    <label>Password
-      <input type="password" id="login-password" autocomplete="current-password" placeholder="Password">
-    </label>
+    <div id="login-fields-email">
+      <label>Email
+        <input type="email" id="login-email" autocomplete="username" placeholder="you@company.com">
+      </label>
+      <label>Password
+        <input type="password" id="login-password" autocomplete="current-password" placeholder="Password">
+      </label>
+    </div>
+    <div id="login-fields-legacy" class="hidden">
+      <label>Name
+        <input type="text" id="login-name" autocomplete="username" placeholder="e.g. Sarah Khan">
+      </label>
+      <label>PIN
+        <input type="password" id="login-pin" autocomplete="current-password" inputmode="numeric" maxlength="6" placeholder="4-6 digit PIN">
+      </label>
+    </div>
 
     <p class="login-error" id="login-error"></p>
     <button class="btn btn-primary login-submit" type="submit">Log in</button>
+    <button type="button" class="login-mode-toggle" id="btn-login-mode-toggle">Log in with name &amp; PIN instead</button>
   </form>
 </div>
 
