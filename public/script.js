@@ -1490,6 +1490,7 @@ function buildGroupTable(group) {
     group.statuses.forEach(status => {
       board.appendChild(buildKanbanColumn(status, group, topTasks, groupTasks, project));
     });
+    if (isAdmin()) board.appendChild(buildKanbanAddColumn(group));
     wrap.appendChild(board);
   }
 
@@ -1722,19 +1723,21 @@ function buildKanbanColumn(status, group, topTasks, groupTasks, project) {
   header.append(dot, label, count);
 
   if (isAdmin()) {
-    const gear = document.createElement("button");
-    gear.type = "button";
-    gear.className = "kanban-col-manage";
-    gear.innerHTML = "&#8942;";
-    gear.title = "Manage statuses";
-    gear.addEventListener("click", (e) => {
+    const delColBtn = document.createElement("button");
+    delColBtn.type = "button";
+    delColBtn.className = "kanban-col-del";
+    delColBtn.innerHTML = "&times;";
+    delColBtn.title = "Delete this status/column";
+    delColBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      showPopover(gear, (pop) => {
-        pop.classList.add("status-editor");
-        renderStatusEditor(pop, null, group);
-      });
+      if (group.statuses.length <= 1) { alert("You need at least one status."); return; }
+      if (!confirm(`Delete the "${status.label}" column? Tasks in it will move to another status.`)) return;
+      try {
+        await api("DELETE", `/api/groups/${group.id}/statuses/${status.id}`);
+      } catch (err) { alert(err.message); return; }
+      await loadAndRenderBoard();
     });
-    header.appendChild(gear);
+    header.appendChild(delColBtn);
   }
 
   col.appendChild(header);
@@ -1751,6 +1754,42 @@ function buildKanbanColumn(status, group, topTasks, groupTasks, project) {
   }
 
   return col;
+}
+
+function buildKanbanAddColumn(group) {
+  const tile = document.createElement("div");
+  tile.className = "kanban-add-column";
+  tile.innerHTML = `<span class="plus">+</span> Add status`;
+
+  tile.addEventListener("click", () => {
+    if (tile.classList.contains("open")) return;
+    tile.classList.add("open");
+    tile.innerHTML = "";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Status name";
+    tile.appendChild(input);
+    input.focus();
+    let committed = false;
+    const commit = async () => {
+      if (committed) return;
+      committed = true;
+      const label = input.value.trim();
+      if (!label) { renderBoard(); return; }
+      const color = COLORS[group.statuses.length % COLORS.length];
+      try {
+        await api("POST", `/api/groups/${group.id}/statuses`, { label, color });
+      } catch (err) { alert(err.message); }
+      await loadAndRenderBoard();
+    };
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") commit();
+      if (e.key === "Escape" && !committed) { committed = true; renderBoard(); }
+    });
+    input.addEventListener("blur", () => { if (!committed) commit(); });
+  });
+
+  return tile;
 }
 
 function buildKanbanQuickAdd(status, group, project) {
@@ -1888,6 +1927,8 @@ function buildKanbanQuickAdd(status, group, project) {
   return wrap;
 }
 
+let pendingSubtaskAddFor = null;
+
 function buildTaskCard(task, group, project, groupTasks) {
   const assigneeIds = task.assigneeIds || [];
   const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
@@ -1896,6 +1937,7 @@ function buildTaskCard(task, group, project, groupTasks) {
   const noteCount = boardNotes.filter(n => n.taskId === task.id).length;
   const urgency = getUrgency(task.dueDate, task.status === "done");
   const canDrag = isAdmin() || (!!me && assigneeIds.includes(me.id));
+  const statusDef = group.statuses.find(s => s.id === task.status) || group.statuses[0];
 
   const cardWrap = document.createElement("div");
   cardWrap.className = "kanban-card-wrap";
@@ -1912,30 +1954,92 @@ function buildTaskCard(task, group, project, groupTasks) {
   const meta = document.createElement("div");
   meta.className = "kanban-card-meta";
 
-  if (task.dueDate) {
-    const due = document.createElement("span");
-    due.className = "kanban-card-due urgency-" + urgency.cls;
-    due.textContent = formatDate(task.dueDate);
-    meta.appendChild(due);
-  }
+  const ownerIcon = document.createElement("span");
+  ownerIcon.className = "kc-icon kc-owner";
+  ownerIcon.innerHTML = assignedMembers.length ? avatarHtml(assignedMembers[0]) : ICON_PERSON;
+  meta.appendChild(ownerIcon);
+
+  const flagIcon = document.createElement("span");
+  flagIcon.className = "kc-icon kc-flag";
+  flagIcon.style.color = statusDef.color;
+  flagIcon.title = statusDef.label;
+  flagIcon.innerHTML = ICON_FLAG;
+  meta.appendChild(flagIcon);
+
+  const dateIcon = document.createElement("span");
+  dateIcon.className = "kc-icon kc-date urgency-" + urgency.cls;
+  dateIcon.innerHTML = ICON_CALENDAR + (task.dueDate ? " " + formatDate(task.dueDate) : "");
+  meta.appendChild(dateIcon);
+
   if (noteCount > 0) {
     const noteBadge = document.createElement("span");
-    noteBadge.className = "kanban-card-notes";
+    noteBadge.className = "kc-icon kc-notes";
     noteBadge.innerHTML = `${ICON_CHAT}${noteCount}`;
     meta.appendChild(noteBadge);
-  }
-  if (assignedMembers.length > 0) {
-    const avatars = document.createElement("div");
-    avatars.className = "kanban-card-avatars";
-    avatars.innerHTML = assignedMembers.map(m => avatarHtml(m)).join("");
-    meta.appendChild(avatars);
   }
   card.appendChild(meta);
 
   if (isAdmin()) {
+    const cornerActions = document.createElement("div");
+    cornerActions.className = "kanban-card-actions";
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "kc-action-btn";
+    editBtn.title = "Rename task";
+    editBtn.innerHTML = "&#9998;";
+    editBtn.addEventListener("mousedown", e => e.stopPropagation());
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (card.querySelector(".kanban-card-title-input")) return;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "kanban-card-title-input";
+      input.value = task.title;
+      titleEl.replaceWith(input);
+      input.focus();
+      input.select();
+      let committed = false;
+      const commit = async () => {
+        if (committed) return;
+        committed = true;
+        const v = input.value.trim();
+        if (v && v !== task.title) {
+          try { await api("PATCH", `/api/tasks/${task.id}`, { title: v }); } catch (err) { alert(err.message); }
+        }
+        await loadAndRenderBoard();
+      };
+      input.addEventListener("mousedown", ev => ev.stopPropagation());
+      input.addEventListener("click", ev => ev.stopPropagation());
+      input.addEventListener("keydown", ev => {
+        if (ev.key === "Enter") commit();
+        if (ev.key === "Escape" && !committed) { committed = true; renderBoard(); }
+      });
+      input.addEventListener("blur", () => { if (!committed) commit(); });
+    });
+    cornerActions.appendChild(editBtn);
+
+    const addSubBtn = document.createElement("button");
+    addSubBtn.type = "button";
+    addSubBtn.className = "kc-action-btn";
+    addSubBtn.title = "Add subtask";
+    addSubBtn.innerHTML = "+";
+    addSubBtn.addEventListener("mousedown", e => e.stopPropagation());
+    addSubBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      expandedSubtaskCards.add(task.id);
+      pendingSubtaskAddFor = task.id;
+      renderBoard();
+      requestAnimationFrame(() => {
+        const input = document.querySelector(`.kanban-card-wrap[data-task-id="${task.id}"] .kanban-subtask-add-input`);
+        if (input) input.focus();
+      });
+    });
+    cornerActions.appendChild(addSubBtn);
+
     const delBtn = document.createElement("button");
     delBtn.type = "button";
-    delBtn.className = "kanban-card-del";
+    delBtn.className = "kc-action-btn kc-action-del";
     delBtn.innerHTML = "&times;";
     delBtn.title = "Delete task";
     delBtn.addEventListener("mousedown", e => e.stopPropagation());
@@ -1944,20 +2048,22 @@ function buildTaskCard(task, group, project, groupTasks) {
       try { await api("DELETE", `/api/tasks/${task.id}`); } catch (err) { alert(err.message); }
       await loadAndRenderBoard();
     });
-    card.appendChild(delBtn);
+    cornerActions.appendChild(delBtn);
+
+    card.appendChild(cornerActions);
   }
 
   card.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
-    if (e.target.closest(".kanban-card-del")) return;
+    if (e.target.closest(".kanban-card-actions")) return;
     e.preventDefault();
     startKanbanCardDrag(e, cardWrap, task, group, canDrag, project, groupTasks);
   });
 
   cardWrap.appendChild(card);
 
+  const isExpanded = expandedSubtaskCards.has(task.id);
   if (subitems.length > 0) {
-    const isExpanded = expandedSubtaskCards.has(task.id);
     const toggle = document.createElement("div");
     toggle.className = "kanban-subtask-toggle";
     toggle.innerHTML = `<span class="chevron">${isExpanded ? "&#9662;" : "&#9656;"}</span> ${subDone}/${subitems.length} subtasks`;
@@ -1969,13 +2075,38 @@ function buildTaskCard(task, group, project, groupTasks) {
       renderBoard();
     });
     cardWrap.appendChild(toggle);
+  }
 
-    if (isExpanded) {
-      const subList = document.createElement("div");
-      subList.className = "kanban-subtask-list";
-      subitems.forEach(sub => subList.appendChild(buildSubtaskMiniCard(sub, group, project, groupTasks)));
-      cardWrap.appendChild(subList);
+  if (isExpanded) {
+    const subList = document.createElement("div");
+    subList.className = "kanban-subtask-list";
+    subitems.forEach(sub => subList.appendChild(buildSubtaskMiniCard(sub, group, project, groupTasks)));
+    if (pendingSubtaskAddFor === task.id) {
+      pendingSubtaskAddFor = null;
+      const addRow = document.createElement("input");
+      addRow.type = "text";
+      addRow.className = "kanban-subtask-add-input";
+      addRow.placeholder = "Subtask name";
+      let committed = false;
+      const commit = async () => {
+        if (committed) return;
+        committed = true;
+        const title = addRow.value.trim();
+        if (!title) { renderBoard(); return; }
+        try {
+          await api("POST", "/api/tasks", { projectId: currentBoardProjectId, groupId: group.id, title, parentId: task.id });
+        } catch (err) { alert(err.message); }
+        await loadAndRenderBoard();
+      };
+      addRow.addEventListener("mousedown", e => e.stopPropagation());
+      addRow.addEventListener("keydown", e => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape" && !committed) { committed = true; renderBoard(); }
+      });
+      addRow.addEventListener("blur", () => { if (!committed) commit(); });
+      subList.appendChild(addRow);
     }
+    cardWrap.appendChild(subList);
   }
 
   return cardWrap;

@@ -1106,18 +1106,46 @@ body.role-member #nav-team { display: none; }
   min-width: 18px;
   text-align: center;
 }
-.kanban-col-manage {
+.kanban-col-del {
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
   padding: 2px 4px;
   border-radius: 4px;
   opacity: 0;
 }
-.kanban-col-header:hover .kanban-col-manage { opacity: 1; }
-.kanban-col-manage:hover { background: var(--card-bg); color: var(--text); }
+.kanban-col-header:hover .kanban-col-del { opacity: 1; }
+.kanban-col-del:hover { background: var(--card-bg); color: var(--high); }
+
+.kanban-add-column {
+  flex: 0 0 220px;
+  width: 220px;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1.5px dashed var(--border);
+  cursor: pointer;
+}
+.kanban-add-column:not(.open):hover { border-color: var(--accent); color: var(--accent); }
+.kanban-add-column .plus { margin-right: 6px; }
+.kanban-add-column input {
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--card-bg);
+  color: var(--text);
+}
 
 .kanban-col-rename-input {
   flex: 1;
@@ -1173,56 +1201,76 @@ body.role-member #nav-team { display: none; }
   font-weight: 600;
   color: var(--text);
   line-height: 1.4;
-  margin-right: 14px;
+  margin-right: 56px;
   word-break: break-word;
+}
+.kanban-card-title-input {
+  width: 100%;
+  margin-right: 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 3px 5px;
+  color: var(--text);
+  background: var(--card-bg);
 }
 
 .kanban-card-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin-top: 8px;
 }
-.kanban-card-due {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 7px;
-  border-radius: 5px;
-  background: var(--bg-subtle);
-  color: var(--text-muted);
-}
-.kanban-card-due.urgency-overdue, .kanban-card-due.urgency-critical { background: #fdeceb; color: var(--high); }
-.kanban-card-due.urgency-high { background: #fff4e5; color: #b96b00; }
-.kanban-card-notes {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
+.kc-icon {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
-.kanban-card-notes svg { width: 12px; height: 12px; }
-.kanban-card-avatars { display: flex; margin-left: auto; }
-.kanban-card-avatars .avatar { width: 22px; height: 22px; font-size: 10px; margin-left: -6px; border: 2px solid var(--card-bg); }
-.kanban-card-avatars .avatar:first-child { margin-left: 0; }
+.kc-icon svg { width: 12px; height: 12px; }
+.kc-icon.kc-owner .avatar { width: 20px; height: 20px; font-size: 9px; margin-left: 0; border: none; }
+.kc-icon.kc-date.urgency-overdue, .kc-icon.kc-date.urgency-critical { color: var(--high); }
+.kc-icon.kc-date.urgency-high { color: #b96b00; }
+.kc-icon.kc-notes { margin-left: auto; }
 
-.kanban-card-del {
+.kanban-card-actions {
   position: absolute;
   top: 6px;
   right: 6px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+.kanban-card:hover .kanban-card-actions { opacity: 1; }
+.kc-action-btn {
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
   cursor: pointer;
-  padding: 2px 5px;
+  padding: 3px 5px;
   border-radius: 4px;
-  opacity: 0;
 }
-.kanban-card:hover .kanban-card-del { opacity: 1; }
-.kanban-card-del:hover { background: var(--bg-subtle); color: var(--high); }
+.kc-action-btn:hover { background: var(--bg-subtle); color: var(--text); }
+.kc-action-del { font-size: 15px; }
+.kc-action-del:hover { color: var(--high); }
+
+.kanban-subtask-add-input {
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  padding: 8px 9px;
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--card-bg);
+  color: var(--text);
+}
 
 /* ---- Inline subtasks nested under a card ---- */
 .kanban-subtask-toggle {
