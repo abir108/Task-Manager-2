@@ -181,78 +181,88 @@
       <p id="projects-empty" class="empty-hint">No projects yet.</p>
     </section>
 
-    <!-- ===== MY PROFILE VIEW ===== -->
+    <!-- ===== MY PROFILE VIEW (task overview) ===== -->
     <section id="view-profile" class="view">
       <header class="view-header">
         <div>
           <h1>My Profile</h1>
-          <p class="subtitle">Your info, password, and what's on your plate</p>
+          <p class="subtitle">What's on your plate</p>
+        </div>
+        <button class="btn btn-ghost" id="btn-goto-edit-profile">Edit Profile</button>
+      </header>
+
+      <div class="profile-tasks-col">
+        <div class="stat-grid profile-stat-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="profile-stat-assigned">0</div>
+            <div class="stat-label">Tasks assigned</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="profile-stat-projects">0</div>
+            <div class="stat-label">Projects</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="profile-stat-rate">0%</div>
+            <div class="stat-label">Completion rate</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Overdue</h2>
+          <div id="profile-overdue-list" class="report-detail-list"></div>
+          <p id="profile-overdue-empty" class="empty-hint">Nothing overdue. Nice work!</p>
+        </div>
+
+        <div class="panel">
+          <h2>Upcoming</h2>
+          <div id="profile-upcoming-list" class="report-detail-list"></div>
+          <p id="profile-upcoming-empty" class="empty-hint">Nothing due soon.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== EDIT PROFILE VIEW ===== -->
+    <section id="view-profile-edit" class="view">
+      <header class="view-header">
+        <div>
+          <button class="btn btn-back" id="btn-back-profile">&larr; Back to My Profile</button>
+          <h1>Edit Profile</h1>
+          <p class="subtitle">Your picture, name, email, and password</p>
         </div>
       </header>
 
-      <div class="profile-layout">
-        <div class="panel profile-card">
-          <div class="avatar-picker">
-            <div class="avatar avatar-preview" id="profile-avatar-preview">?</div>
-            <div class="avatar-picker-actions">
-              <label class="btn btn-ghost file-btn">
-                Choose Photo
-                <input type="file" id="input-profile-avatar" accept="image/*" hidden>
-              </label>
-              <button type="button" class="btn btn-ghost" id="btn-profile-remove-avatar">Remove</button>
-            </div>
-          </div>
-          <label>Name
-            <input type="text" id="input-profile-name">
-          </label>
-          <label>Email <span class="hint-inline">(fixed — ask an admin to change it)</span>
-            <input type="email" id="input-profile-email" disabled>
-          </label>
-          <button class="btn btn-primary" id="btn-save-profile">Save changes</button>
-          <p class="modal-error" id="profile-save-error"></p>
-
-          <hr class="profile-divider">
-
-          <h3>Change password</h3>
-          <label>Current password
-            <input type="password" id="input-current-password" autocomplete="current-password">
-          </label>
-          <label>New password <span class="hint-inline">(at least 6 characters)</span>
-            <input type="password" id="input-new-password" autocomplete="new-password">
-          </label>
-          <button class="btn btn-ghost" id="btn-change-password">Change password</button>
-          <p class="modal-error" id="profile-password-error"></p>
-          <p class="profile-password-success" id="profile-password-success"></p>
-        </div>
-
-        <div class="profile-tasks-col">
-          <div class="stat-grid profile-stat-grid">
-            <div class="stat-card">
-              <div class="stat-value" id="profile-stat-assigned">0</div>
-              <div class="stat-label">Tasks assigned</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value" id="profile-stat-projects">0</div>
-              <div class="stat-label">Projects</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value" id="profile-stat-rate">0%</div>
-              <div class="stat-label">Completion rate</div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <h2>Overdue</h2>
-            <div id="profile-overdue-list" class="report-detail-list"></div>
-            <p id="profile-overdue-empty" class="empty-hint">Nothing overdue. Nice work!</p>
-          </div>
-
-          <div class="panel">
-            <h2>Upcoming</h2>
-            <div id="profile-upcoming-list" class="report-detail-list"></div>
-            <p id="profile-upcoming-empty" class="empty-hint">Nothing due soon.</p>
+      <div class="panel profile-card profile-edit-card">
+        <div class="avatar-picker">
+          <div class="avatar avatar-preview" id="profile-avatar-preview">?</div>
+          <div class="avatar-picker-actions">
+            <label class="btn btn-ghost file-btn">
+              Choose Photo
+              <input type="file" id="input-profile-avatar" accept="image/*" hidden>
+            </label>
+            <button type="button" class="btn btn-ghost" id="btn-profile-remove-avatar">Remove</button>
           </div>
         </div>
+        <label>Name
+          <input type="text" id="input-profile-name">
+        </label>
+        <label>Email <span class="hint-inline">(fixed — ask an admin to change it)</span>
+          <input type="email" id="input-profile-email" disabled>
+        </label>
+        <button class="btn btn-primary" id="btn-save-profile">Save changes</button>
+        <p class="modal-error" id="profile-save-error"></p>
+
+        <hr class="profile-divider">
+
+        <h3>Change password</h3>
+        <label>Current password
+          <input type="password" id="input-current-password" autocomplete="current-password">
+        </label>
+        <label>New password <span class="hint-inline">(at least 6 characters)</span>
+          <input type="password" id="input-new-password" autocomplete="new-password">
+        </label>
+        <button class="btn btn-ghost" id="btn-change-password">Change password</button>
+        <p class="modal-error" id="profile-password-error"></p>
+        <p class="profile-password-success" id="profile-password-success"></p>
       </div>
     </section>
 

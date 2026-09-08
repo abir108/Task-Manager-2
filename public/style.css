@@ -560,6 +560,7 @@ body.role-member #nav-team { display: none; }
 @media (max-width: 900px) {
   .profile-layout { grid-template-columns: 1fr; }
 }
+.profile-edit-card { max-width: 420px; }
 .profile-card label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 14px; }
 .profile-card input {
   display: block;

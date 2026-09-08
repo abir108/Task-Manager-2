@@ -213,11 +213,13 @@ async function showView(name) {
   if ((name === "team" || name === "backup" || name === "archived" || name === "report") && !isAdmin()) name = "dashboard";
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById("view-" + name).classList.add("active");
-  navButtons.forEach(b => b.classList.toggle("active", b.dataset.view === name));
+  const navHighlight = name === "profile-edit" ? "profile" : name;
+  navButtons.forEach(b => b.classList.toggle("active", b.dataset.view === navHighlight));
   document.querySelector(".main").classList.remove("main-wide");
   if (name === "dashboard") await renderDashboard();
   if (name === "projects") await renderProjects();
   if (name === "profile") await renderProfilePage();
+  if (name === "profile-edit") renderProfileEditPage();
   if (name === "team") await renderTeam();
   if (name === "archived") await renderArchivedPage();
   if (name === "report") await renderReportPage();
@@ -675,7 +677,7 @@ async function openAssignModal(projectId) {
    MY PROFILE (any logged-in user)
 =========================================================== */
 
-async function renderProfilePage() {
+function renderProfileEditPage() {
   document.getElementById("input-profile-name").value = me.name;
   document.getElementById("input-profile-email").value = me.email || "(no email set — ask an admin to add one)";
   resetAvatarPicker(me.avatarUrl, "profile-avatar-preview");
@@ -684,7 +686,12 @@ async function renderProfilePage() {
   document.getElementById("profile-password-success").textContent = "";
   document.getElementById("input-current-password").value = "";
   document.getElementById("input-new-password").value = "";
+}
 
+document.getElementById("btn-goto-edit-profile").addEventListener("click", () => showView("profile-edit"));
+document.getElementById("btn-back-profile").addEventListener("click", () => showView("profile"));
+
+async function renderProfilePage() {
   const allProjects = await api("GET", "/api/projects");
   const allTasksRaw = await api("GET", "/api/tasks");
   const activeProjects = allProjects.filter(p => (p.category || "running") !== "archived");
