@@ -1270,26 +1270,31 @@ body.role-member #nav-team { display: none; }
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 9px;
 }
 .kc-icon {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: 11px;
+  gap: 4px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
 }
-.kc-icon svg { width: 12px; height: 12px; }
-.kc-icon.kc-owner .avatar { width: 20px; height: 20px; font-size: 9px; margin-left: 0; border: none; }
+.kc-icon svg { width: 15px; height: 15px; }
+.kc-icon.kc-owner .avatar { width: 22px; height: 22px; font-size: 10px; margin-left: 0; border: none; }
+.kc-owner-avatars { display: flex; }
+.kc-owner-avatars .avatar { width: 22px; height: 22px; font-size: 10px; margin-left: -8px; border: 2px solid var(--card-bg); }
+.kc-owner-avatars .avatar:first-child { margin-left: 0; }
+.kc-icon.kc-date { color: #3ec6e0; }
 .kc-icon.kc-date.urgency-overdue, .kc-icon.kc-date.urgency-critical { color: var(--high); }
 .kc-icon.kc-date.urgency-high { color: #b96b00; }
+.kc-icon.kc-notes { color: var(--accent2); }
 .kc-icon.kc-notes.has-notes { color: var(--accent); }
 .kc-icon.kc-owner, .kc-icon.kc-date, .kc-icon.kc-notes {
   cursor: pointer;
-  padding: 2px 4px;
-  margin: -2px -4px;
+  padding: 3px 5px;
+  margin: -3px -5px;
   border-radius: 4px;
   transition: background .1s;
 }
@@ -1375,12 +1380,16 @@ body.role-member #nav-team { display: none; }
 .ks-icon {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: 10px;
+  gap: 4px;
+  font-size: 11px;
   color: var(--text-muted);
 }
-.ks-icon.ks-owner .avatar { width: 18px; height: 18px; font-size: 9px; margin-left: 0; border: none; }
-.ks-icon svg { width: 11px; height: 11px; }
+.ks-icon.ks-owner .avatar { width: 20px; height: 20px; font-size: 9px; margin-left: 0; border: none; }
+.ks-icon .kc-owner-avatars .avatar { width: 20px; height: 20px; font-size: 9px; margin-left: -7px; border: 2px solid var(--card-bg); }
+.ks-icon .kc-owner-avatars .avatar:first-child { margin-left: 0; }
+.ks-icon svg { width: 13px; height: 13px; }
+.ks-icon.ks-date { color: #3ec6e0; }
+.ks-icon.ks-notes { color: var(--accent2); }
 .ks-icon.ks-notes.has-notes { color: var(--accent); }
 
 /* ---- Add task (column quick-add card) ---- */

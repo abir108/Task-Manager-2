@@ -2157,7 +2157,9 @@ function buildTaskCard(task, group, project, groupTasks) {
 
   const ownerIcon = document.createElement("span");
   ownerIcon.className = "kc-icon kc-owner";
-  ownerIcon.innerHTML = assignedMembers.length ? avatarHtml(assignedMembers[0]) : ICON_PERSON;
+  ownerIcon.innerHTML = assignedMembers.length
+    ? `<span class="kc-owner-avatars">${assignedMembers.map(m => avatarHtml(m)).join("")}</span>`
+    : ICON_PERSON;
   if (isAdmin()) {
     ownerIcon.title = "Click to assign";
     ownerIcon.addEventListener("mousedown", e => e.stopPropagation());
@@ -2357,7 +2359,9 @@ function buildSubtaskMiniCard(sub, group, project, groupTasks) {
   iconsRow.className = "kanban-subtask-card-icons";
   const ownerIcon = document.createElement("span");
   ownerIcon.className = "ks-icon ks-owner";
-  ownerIcon.innerHTML = assignedMembers.length ? avatarHtml(assignedMembers[0]) : ICON_PERSON;
+  ownerIcon.innerHTML = assignedMembers.length
+    ? `<span class="kc-owner-avatars">${assignedMembers.map(m => avatarHtml(m)).join("")}</span>`
+    : ICON_PERSON;
   const statusIcon = document.createElement("span");
   statusIcon.className = "ks-icon ks-status";
   statusIcon.style.color = statusDef.color;
