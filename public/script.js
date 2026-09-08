@@ -1971,12 +1971,12 @@ function buildTaskCard(task, group, project, groupTasks) {
   dateIcon.innerHTML = ICON_CALENDAR + (task.dueDate ? " " + formatDate(task.dueDate) : "");
   meta.appendChild(dateIcon);
 
-  if (noteCount > 0) {
-    const noteBadge = document.createElement("span");
-    noteBadge.className = "kc-icon kc-notes";
-    noteBadge.innerHTML = `${ICON_CHAT}${noteCount}`;
-    meta.appendChild(noteBadge);
-  }
+  const noteIcon = document.createElement("span");
+  noteIcon.className = "kc-icon kc-notes" + (noteCount > 0 ? " has-notes" : "");
+  noteIcon.title = noteCount > 0 ? `${noteCount} update${noteCount === 1 ? "" : "s"}` : "No updates yet";
+  noteIcon.innerHTML = ICON_CHAT + (noteCount > 0 ? " " + noteCount : "");
+  meta.appendChild(noteIcon);
+
   card.appendChild(meta);
 
   if (isAdmin()) {
@@ -2138,7 +2138,12 @@ function buildSubtaskMiniCard(sub, group, project, groupTasks) {
   const dateIcon = document.createElement("span");
   dateIcon.className = "ks-icon ks-date";
   dateIcon.innerHTML = ICON_CALENDAR + (sub.dueDate ? " " + formatDate(sub.dueDate) : "");
-  iconsRow.append(ownerIcon, statusIcon, dateIcon);
+  const subNoteCount = boardNotes.filter(n => n.taskId === sub.id).length;
+  const noteIcon = document.createElement("span");
+  noteIcon.className = "ks-icon ks-notes" + (subNoteCount > 0 ? " has-notes" : "");
+  noteIcon.title = subNoteCount > 0 ? `${subNoteCount} update${subNoteCount === 1 ? "" : "s"}` : "No updates yet";
+  noteIcon.innerHTML = ICON_CHAT + (subNoteCount > 0 ? " " + subNoteCount : "");
+  iconsRow.append(ownerIcon, statusIcon, dateIcon, noteIcon);
   mini.appendChild(iconsRow);
 
   mini.addEventListener("click", (e) => {

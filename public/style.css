@@ -1236,7 +1236,7 @@ body.role-member #nav-team { display: none; }
 .kc-icon.kc-owner .avatar { width: 20px; height: 20px; font-size: 9px; margin-left: 0; border: none; }
 .kc-icon.kc-date.urgency-overdue, .kc-icon.kc-date.urgency-critical { color: var(--high); }
 .kc-icon.kc-date.urgency-high { color: #b96b00; }
-.kc-icon.kc-notes { margin-left: auto; }
+.kc-icon.kc-notes.has-notes { color: var(--accent); }
 
 .kanban-card-actions {
   position: absolute;
@@ -1324,6 +1324,7 @@ body.role-member #nav-team { display: none; }
 }
 .ks-icon.ks-owner .avatar { width: 18px; height: 18px; font-size: 9px; margin-left: 0; border: none; }
 .ks-icon svg { width: 11px; height: 11px; }
+.ks-icon.ks-notes.has-notes { color: var(--accent); }
 
 /* ---- Add task (column quick-add card) ---- */
 .kanban-add-task {
