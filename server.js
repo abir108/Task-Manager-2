@@ -72,8 +72,10 @@ function requireAdmin(req, res, next) {
 }
 
 function publicMember(m) {
-  return { id: m.id, name: m.name, role: m.role, avatarUrl: m.avatarUrl || null, createdAt: m.createdAt };
+  return { id: m.id, name: m.name, email: m.email || null, role: m.role, avatarUrl: m.avatarUrl || null, createdAt: m.createdAt };
 }
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const MAX_AVATAR_LENGTH = 400000; // ~290KB decoded, generous for a small profile photo
 
@@ -142,6 +144,26 @@ function deleteNotesForTaskIds(taskIds) {
 
 /* ---------- Auth routes ---------- */
 app.post("/api/login", (req, res) => {
+  // Primary path: email + password. Legacy path: name + PIN, kept so existing
+  // members aren't locked out until an admin migrates them via the Team page.
+  if (req.body.email !== undefined) {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const password = String(req.body.password || "").trim();
+    if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+
+    const key = "email:" + email;
+    if (isLocked(key)) return res.status(429).json({ error: "Too many attempts. Try again in a minute." });
+
+    const member = store.members.find(m => m.email && m.email.toLowerCase() === email);
+    if (!member || !member.passwordHash || !bcrypt.compareSync(password, member.passwordHash)) {
+      registerFailure(key);
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    clearFailures(key);
+    req.session.userId = member.id;
+    return res.json({ member: publicMember(member) });
+  }
+
   const name = String(req.body.name || "").trim();
   const pin = String(req.body.pin || "").trim();
   if (!name || !pin) return res.status(400).json({ error: "Name and PIN are required" });
@@ -150,7 +172,7 @@ app.post("/api/login", (req, res) => {
   if (isLocked(key)) return res.status(429).json({ error: "Too many attempts. Try again in a minute." });
 
   const member = store.members.find(m => m.name.toLowerCase() === key);
-  if (!member || !bcrypt.compareSync(pin, member.pinHash)) {
+  if (!member || !member.pinHash || !bcrypt.compareSync(pin, member.pinHash)) {
     registerFailure(key);
     return res.status(401).json({ error: "Invalid name or PIN" });
   }
@@ -169,6 +191,49 @@ app.get("/api/me", (req, res) => {
   res.json({ member: publicMember(member) });
 });
 
+/* Self-service profile: any logged-in user can update their own display name
+   and picture, but not their own email or role -- only an admin can change
+   those (via PATCH /api/members/:id). */
+app.patch("/api/me", requireAuth, async (req, res) => {
+  const member = req.member;
+  if (req.body.name !== undefined) {
+    const name = String(req.body.name).trim();
+    if (!name) return res.status(400).json({ error: "Name cannot be empty" });
+    if (store.members.some(m => m.id !== member.id && m.name.toLowerCase() === name.toLowerCase())) {
+      return res.status(409).json({ error: "That name is already in use" });
+    }
+    member.name = name;
+  }
+  if (req.body.avatarUrl !== undefined) {
+    if (req.body.avatarUrl === null || req.body.avatarUrl === "") {
+      member.avatarUrl = null;
+    } else if (isValidAvatarUrl(req.body.avatarUrl)) {
+      member.avatarUrl = req.body.avatarUrl;
+    } else {
+      return res.status(400).json({ error: "Invalid or too large profile picture" });
+    }
+  }
+  await save();
+  res.json(publicMember(member));
+});
+
+app.post("/api/me/change-password", requireAuth, async (req, res) => {
+  const member = req.member;
+  const currentPassword = String(req.body.currentPassword || "");
+  const newPassword = String(req.body.newPassword || "");
+  if (newPassword.length < 6) return res.status(400).json({ error: "New password must be at least 6 characters" });
+  if (member.passwordHash) {
+    if (!bcrypt.compareSync(currentPassword, member.passwordHash)) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+  } else if (!member.email) {
+    return res.status(400).json({ error: "Ask an admin to set your email and an initial password first" });
+  }
+  member.passwordHash = bcrypt.hashSync(newPassword, 10);
+  await save();
+  res.json({ ok: true });
+});
+
 /* ---------- Lightweight directory (any logged-in user, name-only) ---------- */
 app.get("/api/team-lite", requireAuth, (req, res) => {
   res.json(store.members.map(m => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl || null })));
@@ -181,19 +246,29 @@ app.get("/api/members", requireAdmin, (req, res) => {
 
 app.post("/api/members", requireAdmin, async (req, res) => {
   const name = String(req.body.name || "").trim();
-  const pin = String(req.body.pin || "").trim();
   const role = req.body.role === "admin" ? "admin" : "member";
   if (!name) return res.status(400).json({ error: "Name is required" });
-  if (!/^\d{4,6}$/.test(pin)) return res.status(400).json({ error: "PIN must be 4-6 digits" });
   if (store.members.some(m => m.name.toLowerCase() === name.toLowerCase())) {
     return res.status(409).json({ error: "That name is already in use" });
   }
+
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  if (!email || !EMAIL_RE.test(email)) return res.status(400).json({ error: "Enter a valid email address" });
+  if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+  if (store.members.some(m => m.email && m.email.toLowerCase() === email)) {
+    return res.status(409).json({ error: "That email is already in use" });
+  }
+
   let avatarUrl = null;
   if (req.body.avatarUrl) {
     if (!isValidAvatarUrl(req.body.avatarUrl)) return res.status(400).json({ error: "Invalid or too large profile picture" });
     avatarUrl = req.body.avatarUrl;
   }
-  const member = { id: uid(), name, pinHash: bcrypt.hashSync(pin, 10), role, avatarUrl, createdAt: Date.now() };
+  const member = {
+    id: uid(), name, role, avatarUrl, createdAt: Date.now(),
+    email, passwordHash: bcrypt.hashSync(password, 10), pinHash: null
+  };
   store.members.push(member);
   await save();
   res.status(201).json(publicMember(member));
@@ -215,6 +290,21 @@ app.patch("/api/members/:id", requireAdmin, async (req, res) => {
     const pin = String(req.body.pin).trim();
     if (!/^\d{4,6}$/.test(pin)) return res.status(400).json({ error: "PIN must be 4-6 digits" });
     member.pinHash = bcrypt.hashSync(pin, 10);
+  }
+  if (req.body.email !== undefined) {
+    const email = String(req.body.email).trim().toLowerCase();
+    if (!email || !EMAIL_RE.test(email)) return res.status(400).json({ error: "Enter a valid email address" });
+    if (store.members.some(m => m.id !== member.id && m.email && m.email.toLowerCase() === email)) {
+      return res.status(409).json({ error: "That email is already in use" });
+    }
+    member.email = email;
+  }
+  if (req.body.password !== undefined) {
+    // Admin-set password -- this is how a member's password gets "recovered"
+    // since there's no email-sending capability to run a self-serve reset flow.
+    const password = String(req.body.password);
+    if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    member.passwordHash = bcrypt.hashSync(password, 10);
   }
   if (req.body.role !== undefined) {
     const nextRole = req.body.role === "admin" ? "admin" : "member";

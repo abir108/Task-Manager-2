@@ -124,14 +124,29 @@ function showApp() {
   document.getElementById("app-shell").classList.remove("hidden");
 }
 
+let loginMode = "email";
+document.getElementById("btn-login-mode-toggle").addEventListener("click", () => {
+  loginMode = loginMode === "email" ? "legacy" : "email";
+  document.getElementById("login-fields-email").classList.toggle("hidden", loginMode !== "email");
+  document.getElementById("login-fields-legacy").classList.toggle("hidden", loginMode !== "legacy");
+  document.getElementById("login-subtitle").textContent = loginMode === "email"
+    ? "Sign in with your email and password"
+    : "Sign in with your name and PIN";
+  document.getElementById("btn-login-mode-toggle").textContent = loginMode === "email"
+    ? "Log in with name & PIN instead"
+    : "Log in with email & password instead";
+  document.getElementById("login-error").textContent = "";
+});
+
 document.getElementById("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const name = document.getElementById("login-name").value.trim();
-  const pin = document.getElementById("login-pin").value.trim();
   const errEl = document.getElementById("login-error");
   errEl.textContent = "";
+  const body = loginMode === "email"
+    ? { email: document.getElementById("login-email").value.trim(), password: document.getElementById("login-password").value }
+    : { name: document.getElementById("login-name").value.trim(), pin: document.getElementById("login-pin").value.trim() };
   try {
-    const data = await api("POST", "/api/login", { name, pin });
+    const data = await api("POST", "/api/login", body);
     me = data.member;
     await afterLogin();
   } catch (err) {
@@ -143,14 +158,15 @@ document.getElementById("btn-logout").addEventListener("click", async () => {
   await api("POST", "/api/logout").catch(() => {});
   me = null; team = []; members = []; projects = []; groups = []; tasks = []; folders = [];
   currentBoardProjectId = null;
+  document.getElementById("login-email").value = "";
+  document.getElementById("login-password").value = "";
   document.getElementById("login-name").value = "";
   document.getElementById("login-pin").value = "";
   document.body.classList.remove("role-member");
   showLogin();
 });
 
-async function afterLogin() {
-  document.body.classList.toggle("role-member", !isAdmin());
+function updateSidebarUserCard() {
   document.getElementById("current-user-name").textContent = me.name;
   document.getElementById("current-user-role").textContent = isAdmin() ? "Admin" : "Member";
   const avatarEl = document.getElementById("current-user-avatar");
@@ -161,6 +177,11 @@ async function afterLogin() {
     avatarEl.style.background = colorFor(me.id);
     avatarEl.textContent = initialsOf(me.name);
   }
+}
+
+async function afterLogin() {
+  document.body.classList.toggle("role-member", !isAdmin());
+  updateSidebarUserCard();
   document.getElementById("projects-subtitle").textContent = isAdmin()
     ? "Create and manage your projects"
     : "Projects you've been assigned to";
@@ -196,6 +217,7 @@ async function showView(name) {
   document.querySelector(".main").classList.remove("main-wide");
   if (name === "dashboard") await renderDashboard();
   if (name === "projects") await renderProjects();
+  if (name === "profile") await renderProfilePage();
   if (name === "team") await renderTeam();
   if (name === "archived") await renderArchivedPage();
   if (name === "report") await renderReportPage();
@@ -650,14 +672,104 @@ async function openAssignModal(projectId) {
 }
 
 /* ===========================================================
+   MY PROFILE (any logged-in user)
+=========================================================== */
+
+async function renderProfilePage() {
+  document.getElementById("input-profile-name").value = me.name;
+  document.getElementById("input-profile-email").value = me.email || "(no email set — ask an admin to add one)";
+  resetAvatarPicker(me.avatarUrl, "profile-avatar-preview");
+  document.getElementById("profile-save-error").textContent = "";
+  document.getElementById("profile-password-error").textContent = "";
+  document.getElementById("profile-password-success").textContent = "";
+  document.getElementById("input-current-password").value = "";
+  document.getElementById("input-new-password").value = "";
+
+  const allProjects = await api("GET", "/api/projects");
+  const allTasksRaw = await api("GET", "/api/tasks");
+  const activeProjects = allProjects.filter(p => (p.category || "running") !== "archived");
+  const activeIds = new Set(activeProjects.map(p => p.id));
+  const allTasks = allTasksRaw.filter(t => activeIds.has(t.projectId));
+
+  reportAllProjectsCache = activeProjects;
+  reportMembersCache = team.length ? team : await api("GET", "/api/team-lite");
+
+  const assigned = allTasks.filter(t => (t.assigneeIds || []).includes(me.id));
+  const projectIds = new Set(assigned.map(t => t.projectId));
+  const done = assigned.filter(t => t.status === "done");
+  const rate = assigned.length ? Math.round((done.length / assigned.length) * 100) : 0;
+
+  document.getElementById("profile-stat-assigned").textContent = assigned.length;
+  document.getElementById("profile-stat-projects").textContent = projectIds.size;
+  document.getElementById("profile-stat-rate").textContent = rate + "%";
+
+  const overdueRows = assigned
+    .filter(t => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) < 0)
+    .map(task => ({ task, project: activeProjects.find(p => p.id === task.projectId) }))
+    .sort((a, b) => new Date(a.task.dueDate) - new Date(b.task.dueDate));
+
+  const upcomingRows = assigned
+    .filter(t => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) >= 0)
+    .map(task => ({ task, project: activeProjects.find(p => p.id === task.projectId) }))
+    .sort((a, b) => new Date(a.task.dueDate) - new Date(b.task.dueDate));
+
+  const overdueList = document.getElementById("profile-overdue-list");
+  overdueList.innerHTML = overdueRows.length ? taskListHtml(overdueRows) : "";
+  attachDetailRowNav(overdueList, null);
+  document.getElementById("profile-overdue-empty").style.display = overdueRows.length ? "none" : "block";
+
+  const upcomingList = document.getElementById("profile-upcoming-list");
+  upcomingList.innerHTML = upcomingRows.length ? taskListHtml(upcomingRows) : "";
+  attachDetailRowNav(upcomingList, null);
+  document.getElementById("profile-upcoming-empty").style.display = upcomingRows.length ? "none" : "block";
+}
+
+document.getElementById("btn-save-profile").addEventListener("click", async () => {
+  const errEl = document.getElementById("profile-save-error");
+  errEl.textContent = "";
+  const name = document.getElementById("input-profile-name").value.trim();
+  if (!name) { errEl.textContent = "Please enter a name."; return; }
+  const body = { name };
+  if (pendingAvatarUrl !== undefined) body.avatarUrl = pendingAvatarUrl;
+  try {
+    const updated = await api("PATCH", "/api/me", body);
+    me = updated;
+    updateSidebarUserCard();
+    showToast("Profile updated");
+  } catch (err) {
+    errEl.textContent = err.message;
+  }
+});
+
+document.getElementById("btn-change-password").addEventListener("click", async () => {
+  const errEl = document.getElementById("profile-password-error");
+  const successEl = document.getElementById("profile-password-success");
+  errEl.textContent = "";
+  successEl.textContent = "";
+  const currentPassword = document.getElementById("input-current-password").value;
+  const newPassword = document.getElementById("input-new-password").value;
+  if (newPassword.length < 6) { errEl.textContent = "New password must be at least 6 characters."; return; }
+  try {
+    await api("POST", "/api/me/change-password", { currentPassword, newPassword });
+    document.getElementById("input-current-password").value = "";
+    document.getElementById("input-new-password").value = "";
+    successEl.textContent = "Password changed.";
+  } catch (err) {
+    errEl.textContent = err.message;
+  }
+});
+
+/* ===========================================================
    TEAM (admin only)
 =========================================================== */
 
 let pendingAvatarUrl; // undefined = no change, string = new image, null = removed
+let avatarPickerTarget = "member-avatar-preview"; // which preview element the crop modal writes to
 
-function resetAvatarPicker(currentUrl) {
+function resetAvatarPicker(currentUrl, targetId) {
   pendingAvatarUrl = undefined;
-  const preview = document.getElementById("member-avatar-preview");
+  if (targetId) avatarPickerTarget = targetId;
+  const preview = document.getElementById(avatarPickerTarget);
   if (currentUrl) {
     preview.style.background = "";
     preview.innerHTML = `<img src="${currentUrl}" alt="">`;
@@ -668,6 +780,7 @@ function resetAvatarPicker(currentUrl) {
 }
 
 document.getElementById("input-member-avatar").addEventListener("change", (e) => {
+  avatarPickerTarget = "member-avatar-preview";
   const file = e.target.files[0];
   e.target.value = "";
   if (!file) return;
@@ -678,7 +791,22 @@ document.getElementById("input-member-avatar").addEventListener("change", (e) =>
 
 document.getElementById("btn-remove-avatar").addEventListener("click", () => {
   pendingAvatarUrl = null;
-  resetAvatarPicker(null);
+  resetAvatarPicker(null, "member-avatar-preview");
+});
+
+document.getElementById("input-profile-avatar").addEventListener("change", (e) => {
+  avatarPickerTarget = "profile-avatar-preview";
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => openCropModal(reader.result);
+  reader.readAsDataURL(file);
+});
+
+document.getElementById("btn-profile-remove-avatar").addEventListener("click", () => {
+  pendingAvatarUrl = null;
+  resetAvatarPicker(null, "profile-avatar-preview");
 });
 
 /* ---------- Interactive avatar crop ---------- */
@@ -769,7 +897,7 @@ document.getElementById("btn-save-crop").addEventListener("click", () => {
   canvas.getContext("2d").drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, 200, 200);
   const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
   pendingAvatarUrl = dataUrl;
-  const preview = document.getElementById("member-avatar-preview");
+  const preview = document.getElementById(avatarPickerTarget);
   preview.style.background = "";
   preview.innerHTML = `<img src="${dataUrl}" alt="">`;
   closeModal("modal-crop");
@@ -779,6 +907,10 @@ document.getElementById("btn-save-crop").addEventListener("click", () => {
 document.getElementById("btn-new-member").addEventListener("click", () => {
   document.getElementById("member-modal-title").textContent = "Add Teammate";
   document.getElementById("input-member-name").value = "";
+  document.getElementById("input-member-email").value = "";
+  document.getElementById("input-member-password").value = "";
+  document.getElementById("input-member-password").placeholder = "At least 6 characters";
+  document.getElementById("label-member-password").firstChild.textContent = "Password ";
   document.getElementById("input-member-pin").value = "";
   document.getElementById("input-member-pin").placeholder = "e.g. 4821";
   document.getElementById("input-member-admin").checked = false;
@@ -793,6 +925,8 @@ document.getElementById("btn-save-member").addEventListener("click", async () =>
   const errEl = document.getElementById("member-error");
   errEl.textContent = "";
   const name = document.getElementById("input-member-name").value.trim();
+  const email = document.getElementById("input-member-email").value.trim();
+  const password = document.getElementById("input-member-password").value;
   const pin = document.getElementById("input-member-pin").value.trim();
   const admin = document.getElementById("input-member-admin").checked;
   if (!name) { errEl.textContent = "Please enter a name."; return; }
@@ -801,12 +935,16 @@ document.getElementById("btn-save-member").addEventListener("click", async () =>
   try {
     if (editId) {
       const body = { name, role: admin ? "admin" : "member" };
+      if (email) body.email = email;
+      if (password) body.password = password;
       if (pin) body.pin = pin;
       if (pendingAvatarUrl !== undefined) body.avatarUrl = pendingAvatarUrl;
       await api("PATCH", `/api/members/${editId}`, body);
     } else {
-      if (!pin) { errEl.textContent = "Please set a PIN."; return; }
-      const body = { name, pin, role: admin ? "admin" : "member" };
+      if (!email) { errEl.textContent = "Please enter an email address."; return; }
+      if (!password) { errEl.textContent = "Please set an initial password."; return; }
+      const body = { name, email, password, role: admin ? "admin" : "member" };
+      if (pin) body.pin = pin;
       if (pendingAvatarUrl) body.avatarUrl = pendingAvatarUrl;
       await api("POST", "/api/members", body);
     }
@@ -820,6 +958,10 @@ document.getElementById("btn-save-member").addEventListener("click", async () =>
 function openEditMember(m) {
   document.getElementById("member-modal-title").textContent = "Edit Teammate";
   document.getElementById("input-member-name").value = m.name;
+  document.getElementById("input-member-email").value = m.email || "";
+  document.getElementById("input-member-password").value = "";
+  document.getElementById("input-member-password").placeholder = "Leave blank to keep current password";
+  document.getElementById("label-member-password").firstChild.textContent = "Reset password ";
   document.getElementById("input-member-pin").value = "";
   document.getElementById("input-member-pin").placeholder = "Leave blank to keep current PIN";
   document.getElementById("input-member-admin").checked = m.role === "admin";
@@ -850,6 +992,7 @@ async function renderTeam() {
       ${avatarHtml(m)}
       <div class="info">
         <div class="name">${escapeHtml(m.name)} ${m.role === "admin" ? '<span class="admin-badge">Admin</span>' : ""}</div>
+        <div class="member-email">${m.email ? escapeHtml(m.email) : '<em>No email set (legacy PIN login)</em>'}</div>
       </div>
       <div class="actions">
         <button class="reset-pin-btn" data-action="edit">Edit</button>

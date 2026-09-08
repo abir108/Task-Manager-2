@@ -69,6 +69,10 @@ function load() {
   });
 
   let changed = false;
+  store.members.forEach(m => {
+    if (m.email === undefined) { m.email = null; changed = true; }
+    if (m.passwordHash === undefined) { m.passwordHash = null; changed = true; }
+  });
   store.projects.forEach(p => {
     if (!p.category || !PROJECT_CATEGORIES.includes(p.category)) {
       p.category = "running";

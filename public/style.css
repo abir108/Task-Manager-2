@@ -110,6 +110,21 @@ body {
   margin: -4px 0 8px;
 }
 
+#login-fields-email.hidden, #login-fields-legacy.hidden { display: none; }
+.login-mode-toggle {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-top: 12px;
+  text-align: center;
+}
+.login-mode-toggle:hover { color: var(--accent); }
+
 /* ---------- Sidebar ---------- */
 .sidebar {
   width: 240px;
@@ -535,6 +550,37 @@ body.role-member #nav-team { display: none; }
   font-size: 16px;
 }
 
+/* ---------- My Profile ---------- */
+.profile-layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .profile-layout { grid-template-columns: 1fr; }
+}
+.profile-card label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 14px; }
+.profile-card input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--card-bg);
+  color: var(--text);
+}
+.profile-card input:disabled { color: var(--text-muted); background: var(--bg-subtle); }
+.profile-card .btn { width: 100%; }
+.profile-card h3 { margin: 0 0 12px; font-size: 14px; }
+.profile-divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+.profile-password-success { color: #00c875; font-size: 13px; margin: 6px 0 0; }
+.profile-tasks-col { display: flex; flex-direction: column; gap: 20px; }
+.profile-stat-grid { margin-bottom: 0; }
+
 .backup-panel { margin-top: 24px; }
 
 .backup-actions {
@@ -897,6 +943,8 @@ body.role-member #nav-team { display: none; }
 .member-card .info { flex: 1; }
 .member-card .info .name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .member-card .info .role { color: var(--text-muted); font-size: 12px; }
+.member-card .member-email { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.member-card .member-email em { font-style: italic; }
 .member-card .actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 .member-card .reset-pin-btn {
   background: none;
@@ -2077,6 +2125,14 @@ tr.sub-row td { padding-top: 7px; padding-bottom: 7px; }
 .modal textarea { min-height: 70px; resize: vertical; }
 
 .hint-inline { font-weight: 400; color: var(--text-muted); text-transform: none; }
+
+.member-legacy-pin {
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.member-legacy-pin summary { cursor: pointer; font-weight: 600; }
+.member-legacy-pin label { margin: 10px 0 0; }
 
 .avatar-picker {
   display: flex;

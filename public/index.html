@@ -15,15 +15,28 @@
       <span class="brand-name">CloudTech Bookkeeping</span>
       <span class="org-name">Project Manager</span>
     </div>
-    <p class="subtitle">Sign in with your name and PIN</p>
-    <label>Name
-      <input type="text" id="login-name" autocomplete="username" placeholder="e.g. Sarah Khan" required>
-    </label>
-    <label>PIN
-      <input type="password" id="login-pin" autocomplete="current-password" inputmode="numeric" maxlength="6" placeholder="4-6 digit PIN" required>
-    </label>
+    <p class="subtitle" id="login-subtitle">Sign in with your email and password</p>
+
+    <div id="login-fields-email">
+      <label>Email
+        <input type="email" id="login-email" autocomplete="username" placeholder="you@company.com">
+      </label>
+      <label>Password
+        <input type="password" id="login-password" autocomplete="current-password" placeholder="Password">
+      </label>
+    </div>
+    <div id="login-fields-legacy" class="hidden">
+      <label>Name
+        <input type="text" id="login-name" autocomplete="username" placeholder="e.g. Sarah Khan">
+      </label>
+      <label>PIN
+        <input type="password" id="login-pin" autocomplete="current-password" inputmode="numeric" maxlength="6" placeholder="4-6 digit PIN">
+      </label>
+    </div>
+
     <p class="login-error" id="login-error"></p>
     <button class="btn btn-primary login-submit" type="submit">Log in</button>
+    <button type="button" class="login-mode-toggle" id="btn-login-mode-toggle">Log in with name &amp; PIN instead</button>
   </form>
 </div>
 
@@ -42,6 +55,9 @@
       </button>
       <button class="nav-btn" data-view="projects">
         <span class="icon">▤</span> Projects
+      </button>
+      <button class="nav-btn" data-view="profile" id="nav-profile">
+        <span class="icon">👤</span> My Profile
       </button>
       <button class="nav-btn" data-view="team" id="nav-team">
         <span class="icon">◔</span> Team
@@ -165,12 +181,87 @@
       <p id="projects-empty" class="empty-hint">No projects yet.</p>
     </section>
 
+    <!-- ===== MY PROFILE VIEW ===== -->
+    <section id="view-profile" class="view">
+      <header class="view-header">
+        <div>
+          <h1>My Profile</h1>
+          <p class="subtitle">Your info, password, and what's on your plate</p>
+        </div>
+      </header>
+
+      <div class="profile-layout">
+        <div class="panel profile-card">
+          <div class="avatar-picker">
+            <div class="avatar avatar-preview" id="profile-avatar-preview">?</div>
+            <div class="avatar-picker-actions">
+              <label class="btn btn-ghost file-btn">
+                Choose Photo
+                <input type="file" id="input-profile-avatar" accept="image/*" hidden>
+              </label>
+              <button type="button" class="btn btn-ghost" id="btn-profile-remove-avatar">Remove</button>
+            </div>
+          </div>
+          <label>Name
+            <input type="text" id="input-profile-name">
+          </label>
+          <label>Email <span class="hint-inline">(fixed — ask an admin to change it)</span>
+            <input type="email" id="input-profile-email" disabled>
+          </label>
+          <button class="btn btn-primary" id="btn-save-profile">Save changes</button>
+          <p class="modal-error" id="profile-save-error"></p>
+
+          <hr class="profile-divider">
+
+          <h3>Change password</h3>
+          <label>Current password
+            <input type="password" id="input-current-password" autocomplete="current-password">
+          </label>
+          <label>New password <span class="hint-inline">(at least 6 characters)</span>
+            <input type="password" id="input-new-password" autocomplete="new-password">
+          </label>
+          <button class="btn btn-ghost" id="btn-change-password">Change password</button>
+          <p class="modal-error" id="profile-password-error"></p>
+          <p class="profile-password-success" id="profile-password-success"></p>
+        </div>
+
+        <div class="profile-tasks-col">
+          <div class="stat-grid profile-stat-grid">
+            <div class="stat-card">
+              <div class="stat-value" id="profile-stat-assigned">0</div>
+              <div class="stat-label">Tasks assigned</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="profile-stat-projects">0</div>
+              <div class="stat-label">Projects</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="profile-stat-rate">0%</div>
+              <div class="stat-label">Completion rate</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Overdue</h2>
+            <div id="profile-overdue-list" class="report-detail-list"></div>
+            <p id="profile-overdue-empty" class="empty-hint">Nothing overdue. Nice work!</p>
+          </div>
+
+          <div class="panel">
+            <h2>Upcoming</h2>
+            <div id="profile-upcoming-list" class="report-detail-list"></div>
+            <p id="profile-upcoming-empty" class="empty-hint">Nothing due soon.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== TEAM VIEW (admin only) ===== -->
     <section id="view-team" class="view">
       <header class="view-header">
         <div>
           <h1>Team</h1>
-          <p class="subtitle">Create logins for your team — each member signs in with their name and PIN</p>
+          <p class="subtitle">Create logins for your team — each member signs in with their email and password</p>
         </div>
         <button class="btn btn-primary" id="btn-new-member">+ Add Teammate</button>
       </header>
@@ -460,9 +551,18 @@
     <label>Name
       <input type="text" id="input-member-name" placeholder="e.g. Sarah Khan">
     </label>
-    <label>PIN <span class="hint-inline">(4-6 digits)</span>
-      <input type="text" id="input-member-pin" inputmode="numeric" maxlength="6" placeholder="e.g. 4821">
+    <label>Email
+      <input type="email" id="input-member-email" placeholder="name@company.com">
     </label>
+    <label id="label-member-password">Password
+      <input type="text" id="input-member-password" placeholder="At least 6 characters">
+    </label>
+    <details class="member-legacy-pin">
+      <summary>Legacy name + PIN login (optional)</summary>
+      <label>PIN <span class="hint-inline">(4-6 digits)</span>
+        <input type="text" id="input-member-pin" inputmode="numeric" maxlength="6" placeholder="e.g. 4821">
+      </label>
+    </details>
     <label class="checkbox-label">
       <input type="checkbox" id="input-member-admin">
       Grant admin access
