@@ -15,9 +15,9 @@
       <span class="brand-name">CloudTech Bookkeeping</span>
       <span class="org-name">Project Manager</span>
     </div>
-    <p class="subtitle" id="login-subtitle">Sign in with your email and password</p>
+    <p class="subtitle" id="login-subtitle">Sign in with your name and PIN</p>
 
-    <div id="login-fields-email">
+    <div id="login-fields-email" class="hidden">
       <label>Email
         <input type="email" id="login-email" autocomplete="username" placeholder="you@company.com">
       </label>
@@ -25,7 +25,7 @@
         <input type="password" id="login-password" autocomplete="current-password" placeholder="Password">
       </label>
     </div>
-    <div id="login-fields-legacy" class="hidden">
+    <div id="login-fields-legacy">
       <label>Name
         <input type="text" id="login-name" autocomplete="username" placeholder="e.g. Sarah Khan">
       </label>
@@ -36,7 +36,7 @@
 
     <p class="login-error" id="login-error"></p>
     <button class="btn btn-primary login-submit" type="submit">Log in</button>
-    <button type="button" class="login-mode-toggle" id="btn-login-mode-toggle">Log in with name &amp; PIN instead</button>
+    <button type="button" class="login-mode-toggle" id="btn-login-mode-toggle">Log in with email &amp; password instead</button>
   </form>
 </div>
 

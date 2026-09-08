@@ -124,7 +124,7 @@ function showApp() {
   document.getElementById("app-shell").classList.remove("hidden");
 }
 
-let loginMode = "email";
+let loginMode = "legacy";
 document.getElementById("btn-login-mode-toggle").addEventListener("click", () => {
   loginMode = loginMode === "email" ? "legacy" : "email";
   document.getElementById("login-fields-email").classList.toggle("hidden", loginMode !== "email");
