@@ -1637,20 +1637,6 @@ function buildGroupTable(group) {
   bar.append(chevron, titleEl, countEl);
 
   if (isAdmin()) {
-    const sendQueryBtn = document.createElement("button");
-    sendQueryBtn.className = "group-send-query";
-    sendQueryBtn.textContent = "Send Query";
-    sendQueryBtn.title = `Adds a "Send Query" task — marking it Done moves this project to ${categoryLabels.query || "Sent to Query"}`;
-    sendQueryBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      try {
-        await api("POST", `/api/groups/${group.id}/send-query`);
-        showToast(`"Send Query" task added — mark it Done to move this project to ${categoryLabels.query || "Sent to Query"}`);
-      } catch (err) { alert(err.message); }
-      await loadAndRenderBoard();
-    });
-    bar.appendChild(sendQueryBtn);
-
     const copyBtn = document.createElement("button");
     copyBtn.className = "group-copy";
     copyBtn.innerHTML = "&#10697;";
@@ -1792,6 +1778,7 @@ function buildListRow(task, group, project, groupTasks) {
     delBtn.addEventListener("mousedown", e => e.stopPropagation());
     delBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
+      if (!confirm(`Delete "${task.title}"? This can't be undone.`)) return;
       try { await api("DELETE", `/api/tasks/${task.id}`); } catch (err) { alert(err.message); }
       await loadAndRenderBoard();
     });
@@ -2275,6 +2262,7 @@ function buildTaskCard(task, group, project, groupTasks) {
     delBtn.addEventListener("mousedown", e => e.stopPropagation());
     delBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
+      if (!confirm(`Delete "${task.title}"? This can't be undone.`)) return;
       try { await api("DELETE", `/api/tasks/${task.id}`); } catch (err) { alert(err.message); }
       await loadAndRenderBoard();
     });
@@ -2602,6 +2590,7 @@ function renderTdSubitemsList(task, group, groupTasks) {
     const delBtn = row.querySelector(".td-subitem-del");
     if (delBtn) {
       delBtn.addEventListener("click", async () => {
+        if (!confirm(`Delete "${sub.title}"? This can't be undone.`)) return;
         try { await api("DELETE", `/api/tasks/${sub.id}`); } catch (err) { alert(err.message); }
         await loadAndRenderBoard();
       });
