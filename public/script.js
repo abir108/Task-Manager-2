@@ -124,27 +124,14 @@ function showApp() {
   document.getElementById("app-shell").classList.remove("hidden");
 }
 
-let loginMode = "legacy";
-document.getElementById("btn-login-mode-toggle").addEventListener("click", () => {
-  loginMode = loginMode === "email" ? "legacy" : "email";
-  document.getElementById("login-fields-email").classList.toggle("hidden", loginMode !== "email");
-  document.getElementById("login-fields-legacy").classList.toggle("hidden", loginMode !== "legacy");
-  document.getElementById("login-subtitle").textContent = loginMode === "email"
-    ? "Sign in with your email and password"
-    : "Sign in with your name and PIN";
-  document.getElementById("btn-login-mode-toggle").textContent = loginMode === "email"
-    ? "Log in with name & PIN instead"
-    : "Log in with email & password instead";
-  document.getElementById("login-error").textContent = "";
-});
-
 document.getElementById("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const errEl = document.getElementById("login-error");
   errEl.textContent = "";
-  const body = loginMode === "email"
-    ? { email: document.getElementById("login-email").value.trim(), password: document.getElementById("login-password").value }
-    : { name: document.getElementById("login-name").value.trim(), pin: document.getElementById("login-pin").value.trim() };
+  const body = {
+    email: document.getElementById("login-email").value.trim(),
+    password: document.getElementById("login-password").value
+  };
   try {
     const data = await api("POST", "/api/login", body);
     me = data.member;
@@ -160,8 +147,6 @@ document.getElementById("btn-logout").addEventListener("click", async () => {
   currentBoardProjectId = null;
   document.getElementById("login-email").value = "";
   document.getElementById("login-password").value = "";
-  document.getElementById("login-name").value = "";
-  document.getElementById("login-pin").value = "";
   document.body.classList.remove("role-member");
   showLogin();
 });

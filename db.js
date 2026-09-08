@@ -73,6 +73,15 @@ function load() {
     if (m.email === undefined) { m.email = null; changed = true; }
     if (m.passwordHash === undefined) { m.passwordHash = null; changed = true; }
   });
+  // One-time bootstrap: give the original Admin account an email+password
+  // login so switching the login screen to email-only doesn't lock out
+  // production, which still only has this account's legacy PIN.
+  const bootstrapAdmin = store.members.find(m => m.name === "Admin" && m.role === "admin" && !m.email);
+  if (bootstrapAdmin) {
+    bootstrapAdmin.email = "admin@cloudtechaccounting.com";
+    bootstrapAdmin.passwordHash = bcrypt.hashSync("cloudtech1122", 10);
+    changed = true;
+  }
   store.projects.forEach(p => {
     if (!p.category || !PROJECT_CATEGORIES.includes(p.category)) {
       p.category = "running";
