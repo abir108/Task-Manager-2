@@ -1335,6 +1335,57 @@ function showPopover(anchor, fillFn) {
   return pop;
 }
 
+/* Reusable assignee-picker popover (checkbox list + Done button) used by
+   both the kanban card's owner icon and the quick-add card. */
+function openAssigneePopover(anchor, project, currentIds, onSave) {
+  showPopover(anchor, (pop) => {
+    const eligible = project.memberIds.map(mid => team.find(m => m.id === mid)).filter(Boolean);
+    if (eligible.length === 0) {
+      pop.innerHTML = `<div class="popover-item" style="cursor:default;color:var(--text-muted)">Assign teammates to this project first</div>`;
+      return;
+    }
+    let selected = new Set(currentIds);
+    pop.innerHTML = eligible.map(m => `<div class="popover-item checkbox-item" data-id="${m.id}">
+        <span style="display:flex;align-items:center;gap:8px">
+          ${avatarHtml(m, "margin-left:0;width:20px;height:20px;font-size:10px;border:none")}
+          ${escapeHtml(m.name)}
+        </span>
+        <input type="checkbox" ${selected.has(m.id) ? "checked" : ""}>
+      </div>`).join("");
+    pop.querySelectorAll(".popover-item[data-id]").forEach(item => {
+      const checkbox = item.querySelector("input");
+      const toggle = () => {
+        const id = item.dataset.id;
+        if (selected.has(id)) selected.delete(id); else selected.add(id);
+        checkbox.checked = selected.has(id);
+      };
+      item.addEventListener("click", (ev) => { if (ev.target !== checkbox) toggle(); });
+      checkbox.addEventListener("click", ev => ev.stopPropagation());
+      checkbox.addEventListener("change", toggle);
+    });
+    const doneBtn = document.createElement("button");
+    doneBtn.className = "popover-owner-done";
+    doneBtn.textContent = "Done";
+    doneBtn.addEventListener("click", () => {
+      closeAllPopovers();
+      onSave(Array.from(selected));
+    });
+    pop.appendChild(doneBtn);
+  });
+}
+
+function openDueDatePopover(anchor, currentDate, onSave) {
+  showPopover(anchor, (pop) => {
+    pop.classList.add("popover-timeline");
+    pop.innerHTML = `<label>Due date<input type="date" id="kc-due-input" value="${currentDate || ""}"></label>`;
+    const input = pop.querySelector("#kc-due-input");
+    input.addEventListener("change", () => {
+      closeAllPopovers();
+      onSave(input.value);
+    });
+  });
+}
+
 /* ---------- Status picker (member: pick only) ---------- */
 function renderStatusPicker(pop, task, group) {
   pop.innerHTML = "";
@@ -2107,6 +2158,17 @@ function buildTaskCard(task, group, project, groupTasks) {
   const ownerIcon = document.createElement("span");
   ownerIcon.className = "kc-icon kc-owner";
   ownerIcon.innerHTML = assignedMembers.length ? avatarHtml(assignedMembers[0]) : ICON_PERSON;
+  if (isAdmin()) {
+    ownerIcon.title = "Click to assign";
+    ownerIcon.addEventListener("mousedown", e => e.stopPropagation());
+    ownerIcon.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openAssigneePopover(ownerIcon, project, assigneeIds, async (ids) => {
+        try { await api("PATCH", `/api/tasks/${task.id}`, { assigneeIds: ids }); } catch (err) { alert(err.message); }
+        await loadAndRenderBoard();
+      });
+    });
+  }
   meta.appendChild(ownerIcon);
 
   const flagIcon = document.createElement("span");
@@ -2119,12 +2181,28 @@ function buildTaskCard(task, group, project, groupTasks) {
   const dateIcon = document.createElement("span");
   dateIcon.className = "kc-icon kc-date urgency-" + urgency.cls;
   dateIcon.innerHTML = ICON_CALENDAR + (task.dueDate ? " " + formatDate(task.dueDate) : "");
+  if (isAdmin()) {
+    dateIcon.title = "Click to set due date";
+    dateIcon.addEventListener("mousedown", e => e.stopPropagation());
+    dateIcon.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDueDatePopover(dateIcon, task.dueDate, async (value) => {
+        try { await api("PATCH", `/api/tasks/${task.id}`, { dueDate: value }); } catch (err) { alert(err.message); }
+        await loadAndRenderBoard();
+      });
+    });
+  }
   meta.appendChild(dateIcon);
 
   const noteIcon = document.createElement("span");
   noteIcon.className = "kc-icon kc-notes" + (noteCount > 0 ? " has-notes" : "");
-  noteIcon.title = noteCount > 0 ? `${noteCount} update${noteCount === 1 ? "" : "s"}` : "No updates yet";
+  noteIcon.title = noteCount > 0 ? `${noteCount} update${noteCount === 1 ? "" : "s"}` : "Add an update";
   noteIcon.innerHTML = ICON_CHAT + (noteCount > 0 ? " " + noteCount : "");
+  noteIcon.addEventListener("mousedown", e => e.stopPropagation());
+  noteIcon.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openNotesModal(task);
+  });
   meta.appendChild(noteIcon);
 
   card.appendChild(meta);

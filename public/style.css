@@ -1286,6 +1286,14 @@ body.role-member #nav-team { display: none; }
 .kc-icon.kc-date.urgency-overdue, .kc-icon.kc-date.urgency-critical { color: var(--high); }
 .kc-icon.kc-date.urgency-high { color: #b96b00; }
 .kc-icon.kc-notes.has-notes { color: var(--accent); }
+.kc-icon.kc-owner, .kc-icon.kc-date, .kc-icon.kc-notes {
+  cursor: pointer;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 4px;
+  transition: background .1s;
+}
+.kc-icon.kc-owner:hover, .kc-icon.kc-date:hover, .kc-icon.kc-notes:hover { background: var(--bg-subtle); color: var(--accent); }
 
 .kanban-card-actions {
   position: absolute;
