@@ -1474,6 +1474,7 @@ body.task-row-dragging * { cursor: grabbing !important; }
   border-bottom: 1px solid var(--border);
 }
 .kl-col-task { flex: 1; min-width: 0; }
+.kl-col-notes { width: 40px; flex-shrink: 0; }
 .kl-col-status { width: 120px; flex-shrink: 0; }
 .kl-col-owner { width: 100px; flex-shrink: 0; }
 .kl-col-due { width: 90px; flex-shrink: 0; }
@@ -1521,6 +1522,41 @@ body.task-row-dragging * { cursor: grabbing !important; }
   padding: 2px 6px;
   flex-shrink: 0;
 }
+.kl-sub-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.kl-sub-toggle:hover { color: var(--accent); }
+.kl-col-notes.kl-notes-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  color: var(--accent2);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+.kl-col-notes.kl-notes-btn:hover { background: var(--bg-subtle); color: var(--accent); }
+.kl-col-notes.kl-notes-btn.has-notes { color: var(--accent); }
+.kl-col-notes svg { width: 14px; height: 14px; }
+
+.kanban-list-row.kl-sub-row {
+  padding-left: 34px;
+  background: var(--bg-subtle);
+}
+.kanban-list-row.kl-sub-row .kl-col-task { font-weight: 500; color: var(--text-muted); }
+.kanban-list-row.kl-sub-row:hover { background: var(--border); }
+
 .kanban-list-row .status-pill.kl-col-status { min-width: 0; padding: 5px 8px; font-size: 11px; }
 .kanban-list-row .kl-col-owner { display: flex; }
 .kanban-list-row .kl-col-owner .avatar { width: 22px; height: 22px; font-size: 10px; margin-left: -6px; border: 2px solid var(--card-bg); }

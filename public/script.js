@@ -1678,13 +1678,17 @@ function buildGroupList(group, topTasks, groupTasks, project) {
 
   const header = document.createElement("div");
   header.className = "kanban-list-header-row";
-  header.innerHTML = `<span class="kl-col-task">Task</span><span class="kl-col-status">Status</span><span class="kl-col-owner">Owner</span><span class="kl-col-due">Due date</span>`;
+  header.innerHTML = `<span class="kl-col-task">Task</span><span class="kl-col-notes"></span><span class="kl-col-status">Status</span><span class="kl-col-owner">Owner</span><span class="kl-col-due">Due date</span>`;
   wrap.appendChild(header);
 
   const listEl = document.createElement("div");
   listEl.className = "kanban-list-rows";
   topTasks.forEach(task => {
     listEl.appendChild(buildListRow(task, group, project, groupTasks));
+    const subitems = groupTasks.filter(t => t.parentId === task.id);
+    if (subitems.length > 0 && expandedSubtaskCards.has(task.id)) {
+      subitems.forEach(sub => listEl.appendChild(buildSubListRow(sub, task, group, project, groupTasks)));
+    }
   });
   wrap.appendChild(listEl);
 
@@ -1705,8 +1709,10 @@ function buildListRow(task, group, project, groupTasks) {
   const assigneeIds = task.assigneeIds || [];
   const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
   const subitems = groupTasks.filter(t => t.parentId === task.id);
+  const noteCount = boardNotes.filter(n => n.taskId === task.id).length;
   const statusDef = group.statuses.find(s => s.id === task.status) || group.statuses[0];
   const urgency = getUrgency(task.dueDate, task.status === "done");
+  const isExpanded = expandedSubtaskCards.has(task.id);
 
   const row = document.createElement("div");
   row.className = "kanban-list-row";
@@ -1727,7 +1733,24 @@ function buildListRow(task, group, project, groupTasks) {
 
   const titleCell = document.createElement("span");
   titleCell.className = "kl-col-task";
-  titleCell.textContent = task.title;
+  if (subitems.length > 0) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "kl-sub-toggle";
+    toggle.innerHTML = isExpanded ? "&#9662;" : "&#9656;";
+    toggle.title = "Expand/collapse subtasks";
+    toggle.addEventListener("mousedown", e => e.stopPropagation());
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (expandedSubtaskCards.has(task.id)) expandedSubtaskCards.delete(task.id);
+      else expandedSubtaskCards.add(task.id);
+      renderBoard();
+    });
+    titleCell.appendChild(toggle);
+  }
+  const titleText = document.createElement("span");
+  titleText.textContent = task.title;
+  titleCell.appendChild(titleText);
   if (subitems.length > 0) {
     const subBadge = document.createElement("span");
     subBadge.className = "kl-sub-badge";
@@ -1735,6 +1758,18 @@ function buildListRow(task, group, project, groupTasks) {
     titleCell.appendChild(subBadge);
   }
   row.appendChild(titleCell);
+
+  const notesCell = document.createElement("button");
+  notesCell.type = "button";
+  notesCell.className = "kl-col-notes kl-notes-btn" + (noteCount > 0 ? " has-notes" : "");
+  notesCell.title = noteCount > 0 ? `${noteCount} update${noteCount === 1 ? "" : "s"}` : "Add an update";
+  notesCell.innerHTML = ICON_CHAT + (noteCount > 0 ? ` <span>${noteCount}</span>` : "");
+  notesCell.addEventListener("mousedown", e => e.stopPropagation());
+  notesCell.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openNotesModal(task);
+  });
+  row.appendChild(notesCell);
 
   const statusCell = document.createElement("span");
   statusCell.className = "status-pill kl-col-status";
@@ -1771,23 +1806,120 @@ function buildListRow(task, group, project, groupTasks) {
   }
 
   row.addEventListener("click", (e) => {
-    if (e.target.closest(".kl-drag-handle,.kl-del")) return;
+    if (e.target.closest(".kl-drag-handle,.kl-del,.kl-notes-btn,.kl-sub-toggle")) return;
     openTaskDetailModal(task, group, project, groupTasks);
   });
 
   return row;
 }
 
-/* Same live-move-on-drag approach as the kanban cards, simplified to a single
-   flat list (List view has no columns to cross, just reorder in place). */
+function buildSubListRow(sub, parentTask, group, project, groupTasks) {
+  const assigneeIds = sub.assigneeIds || [];
+  const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
+  const noteCount = boardNotes.filter(n => n.taskId === sub.id).length;
+  const statusDef = group.statuses.find(s => s.id === sub.status) || group.statuses[0];
+  const urgency = getUrgency(sub.dueDate, sub.status === "done");
+
+  const row = document.createElement("div");
+  row.className = "kanban-list-row kl-sub-row";
+  row.dataset.taskId = sub.id;
+  row.dataset.parentId = parentTask.id;
+
+  if (isAdmin()) {
+    const handle = document.createElement("span");
+    handle.className = "kl-drag-handle";
+    handle.innerHTML = "&#8942;&#8942;";
+    handle.title = "Drag to reorder subtasks";
+    handle.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      startSubListRowDrag(e, row);
+    });
+    row.appendChild(handle);
+  }
+
+  const titleCell = document.createElement("span");
+  titleCell.className = "kl-col-task";
+  titleCell.textContent = sub.title;
+  row.appendChild(titleCell);
+
+  const notesCell = document.createElement("button");
+  notesCell.type = "button";
+  notesCell.className = "kl-col-notes kl-notes-btn" + (noteCount > 0 ? " has-notes" : "");
+  notesCell.title = noteCount > 0 ? `${noteCount} update${noteCount === 1 ? "" : "s"}` : "Add an update";
+  notesCell.innerHTML = ICON_CHAT + (noteCount > 0 ? ` <span>${noteCount}</span>` : "");
+  notesCell.addEventListener("mousedown", e => e.stopPropagation());
+  notesCell.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openNotesModal(sub);
+  });
+  row.appendChild(notesCell);
+
+  const statusCell = document.createElement("span");
+  statusCell.className = "status-pill kl-col-status";
+  statusCell.style.background = statusDef.color;
+  statusCell.textContent = statusDef.label;
+  row.appendChild(statusCell);
+
+  const ownerCell = document.createElement("span");
+  ownerCell.className = "kl-col-owner";
+  ownerCell.innerHTML = assignedMembers.length
+    ? assignedMembers.map(m => avatarHtml(m)).join("")
+    : `<span class="kl-unassigned">Unassigned</span>`;
+  row.appendChild(ownerCell);
+
+  const dueCell = document.createElement("span");
+  dueCell.className = "kl-col-due urgency-" + urgency.cls;
+  dueCell.textContent = sub.dueDate ? formatDate(sub.dueDate) : "—";
+  row.appendChild(dueCell);
+
+  if (isAdmin()) {
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "kl-del";
+    delBtn.innerHTML = "&times;";
+    delBtn.title = "Delete subtask";
+    delBtn.addEventListener("mousedown", e => e.stopPropagation());
+    delBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete "${sub.title}"? This can't be undone.`)) return;
+      try { await api("DELETE", `/api/tasks/${sub.id}`); } catch (err) { alert(err.message); }
+      await loadAndRenderBoard();
+    });
+    row.appendChild(delBtn);
+  }
+
+  row.addEventListener("click", (e) => {
+    if (e.target.closest(".kl-drag-handle,.kl-del,.kl-notes-btn")) return;
+    openTaskDetailModal(sub, group, project, groupTasks);
+  });
+
+  return row;
+}
+
+/* Live-move-on-drag for top-level rows -- moves a row together with its own
+   expanded subtask rows as a block (mirrors the kanban card's subtask
+   block), and skips over other rows' subtask blocks when figuring out
+   position. */
+function listRowBlock(row) {
+  const els = [row];
+  let el = row.nextElementSibling;
+  while (el && el.classList.contains("kl-sub-row") && el.dataset.parentId === row.dataset.taskId) {
+    els.push(el);
+    el = el.nextElementSibling;
+  }
+  return els;
+}
+
 function startListRowDrag(startEvent, row) {
   const listEl = row.parentElement;
+  const draggedBlock = listRowBlock(row);
   const startX = startEvent.clientX;
   const startY = startEvent.clientY;
   const THRESHOLD = 4;
   let dragging = false;
 
-  function rows() { return Array.from(listEl.children); }
+  function topRows() { return Array.from(listEl.children).filter(r => !r.classList.contains("kl-sub-row")); }
 
   function onMouseMove(e) {
     if (!dragging) {
@@ -1796,7 +1928,64 @@ function startListRowDrag(startEvent, row) {
       row.classList.add("dragging");
       document.body.classList.add("task-row-dragging");
     }
-    for (const sib of rows()) {
+    for (const sib of topRows()) {
+      if (sib === row) continue;
+      const block = listRowBlock(sib);
+      const firstRect = block[0].getBoundingClientRect();
+      const lastRect = block[block.length - 1].getBoundingClientRect();
+      const mid = (firstRect.top + lastRect.bottom) / 2;
+      const rowBeforeSib = !!(row.compareDocumentPosition(sib) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (e.clientY < mid && !rowBeforeSib) {
+        draggedBlock.forEach(el => listEl.insertBefore(el, sib));
+        break;
+      }
+      if (e.clientY >= mid && rowBeforeSib) {
+        const insertBeforeEl = block[block.length - 1].nextElementSibling;
+        draggedBlock.forEach(el => listEl.insertBefore(el, insertBeforeEl));
+        break;
+      }
+    }
+  }
+
+  async function onMouseUp() {
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+    document.body.classList.remove("task-row-dragging");
+    row.classList.remove("dragging");
+    if (!dragging) return;
+    const topIds = topRows().map(r => r.dataset.taskId);
+    try {
+      await api("POST", "/api/tasks/reorder", { taskIds: topIds });
+    } catch (err) { alert(err.message); }
+    await loadAndRenderBoard();
+  }
+
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", onMouseUp);
+}
+
+/* Subtask rows only reorder among their own siblings (same parent) -- the
+   reorder endpoint requires all given ids to share the same parentId. */
+function startSubListRowDrag(startEvent, row) {
+  const listEl = row.parentElement;
+  const parentId = row.dataset.parentId;
+  const startX = startEvent.clientX;
+  const startY = startEvent.clientY;
+  const THRESHOLD = 4;
+  let dragging = false;
+
+  function siblingRows() {
+    return Array.from(listEl.children).filter(r => r.classList.contains("kl-sub-row") && r.dataset.parentId === parentId);
+  }
+
+  function onMouseMove(e) {
+    if (!dragging) {
+      if (Math.abs(e.clientX - startX) < THRESHOLD && Math.abs(e.clientY - startY) < THRESHOLD) return;
+      dragging = true;
+      row.classList.add("dragging");
+      document.body.classList.add("task-row-dragging");
+    }
+    for (const sib of siblingRows()) {
       if (sib === row) continue;
       const r = sib.getBoundingClientRect();
       const mid = r.top + r.height / 2;
@@ -1812,9 +2001,9 @@ function startListRowDrag(startEvent, row) {
     document.body.classList.remove("task-row-dragging");
     row.classList.remove("dragging");
     if (!dragging) return;
-    const topIds = rows().map(r => r.dataset.taskId);
+    const subIds = siblingRows().map(r => r.dataset.taskId);
     try {
-      await api("POST", "/api/tasks/reorder", { taskIds: topIds });
+      await api("POST", "/api/tasks/reorder", { taskIds: subIds });
     } catch (err) { alert(err.message); }
     await loadAndRenderBoard();
   }
