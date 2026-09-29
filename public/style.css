@@ -277,7 +277,11 @@ body {
   color: var(--sidebar-text);
   border: 1px solid #363b5c;
 }
-.logout-btn:hover { color: #fff; border-color: var(--accent); }
+.sidebar-footer .logout-btn:hover {
+  color: #ef6a6a;
+  border-color: #ef6a6a;
+  background: rgba(239, 106, 106, 0.12);
+}
 
 .admin-only { display: inline-flex; }
 body.role-member .admin-only { display: none !important; }
