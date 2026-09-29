@@ -1718,21 +1718,10 @@ function buildListRow(task, group, project, groupTasks) {
   row.className = "kanban-list-row";
   row.dataset.taskId = task.id;
 
-  if (isAdmin()) {
-    const handle = document.createElement("span");
-    handle.className = "kl-drag-handle";
-    handle.innerHTML = "&#8942;&#8942;";
-    handle.title = "Drag to reorder";
-    handle.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      startListRowDrag(e, row);
-    });
-    row.appendChild(handle);
-  }
-
   const titleCell = document.createElement("span");
   titleCell.className = "kl-col-task";
+  const toggleSlot = document.createElement("span");
+  toggleSlot.className = "kl-sub-toggle-slot";
   if (subitems.length > 0) {
     const toggle = document.createElement("button");
     toggle.type = "button";
@@ -1746,8 +1735,9 @@ function buildListRow(task, group, project, groupTasks) {
       else expandedSubtaskCards.add(task.id);
       renderBoard();
     });
-    titleCell.appendChild(toggle);
+    toggleSlot.appendChild(toggle);
   }
+  titleCell.appendChild(toggleSlot);
   const titleText = document.createElement("span");
   titleText.textContent = task.title;
   titleCell.appendChild(titleText);
@@ -1805,10 +1795,19 @@ function buildListRow(task, group, project, groupTasks) {
     row.appendChild(delBtn);
   }
 
-  row.addEventListener("click", (e) => {
-    if (e.target.closest(".kl-drag-handle,.kl-del,.kl-notes-btn,.kl-sub-toggle")) return;
-    openTaskDetailModal(task, group, project, groupTasks);
-  });
+  if (isAdmin()) {
+    row.classList.add("kl-draggable");
+    row.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      startListRowDrag(e, row, task, group, project, groupTasks);
+    });
+  } else {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".kl-del,.kl-notes-btn,.kl-sub-toggle")) return;
+      openTaskDetailModal(task, group, project, groupTasks);
+    });
+  }
 
   return row;
 }
@@ -1824,19 +1823,6 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
   row.className = "kanban-list-row kl-sub-row";
   row.dataset.taskId = sub.id;
   row.dataset.parentId = parentTask.id;
-
-  if (isAdmin()) {
-    const handle = document.createElement("span");
-    handle.className = "kl-drag-handle";
-    handle.innerHTML = "&#8942;&#8942;";
-    handle.title = "Drag to reorder subtasks";
-    handle.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      startSubListRowDrag(e, row);
-    });
-    row.appendChild(handle);
-  }
 
   const titleCell = document.createElement("span");
   titleCell.className = "kl-col-task";
@@ -1889,10 +1875,19 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
     row.appendChild(delBtn);
   }
 
-  row.addEventListener("click", (e) => {
-    if (e.target.closest(".kl-drag-handle,.kl-del,.kl-notes-btn")) return;
-    openTaskDetailModal(sub, group, project, groupTasks);
-  });
+  if (isAdmin()) {
+    row.classList.add("kl-draggable");
+    row.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      startSubListRowDrag(e, row, sub, group, project, groupTasks);
+    });
+  } else {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".kl-del,.kl-notes-btn")) return;
+      openTaskDetailModal(sub, group, project, groupTasks);
+    });
+  }
 
   return row;
 }
@@ -1911,7 +1906,7 @@ function listRowBlock(row) {
   return els;
 }
 
-function startListRowDrag(startEvent, row) {
+function startListRowDrag(startEvent, row, task, group, project, groupTasks) {
   const listEl = row.parentElement;
   const draggedBlock = listRowBlock(row);
   const startX = startEvent.clientX;
@@ -1952,7 +1947,10 @@ function startListRowDrag(startEvent, row) {
     document.removeEventListener("mouseup", onMouseUp);
     document.body.classList.remove("task-row-dragging");
     row.classList.remove("dragging");
-    if (!dragging) return;
+    if (!dragging) {
+      openTaskDetailModal(task, group, project, groupTasks);
+      return;
+    }
     const topIds = topRows().map(r => r.dataset.taskId);
     try {
       await api("POST", "/api/tasks/reorder", { taskIds: topIds });
@@ -1966,7 +1964,7 @@ function startListRowDrag(startEvent, row) {
 
 /* Subtask rows only reorder among their own siblings (same parent) -- the
    reorder endpoint requires all given ids to share the same parentId. */
-function startSubListRowDrag(startEvent, row) {
+function startSubListRowDrag(startEvent, row, sub, group, project, groupTasks) {
   const listEl = row.parentElement;
   const parentId = row.dataset.parentId;
   const startX = startEvent.clientX;
@@ -2000,7 +1998,10 @@ function startSubListRowDrag(startEvent, row) {
     document.removeEventListener("mouseup", onMouseUp);
     document.body.classList.remove("task-row-dragging");
     row.classList.remove("dragging");
-    if (!dragging) return;
+    if (!dragging) {
+      openTaskDetailModal(sub, group, project, groupTasks);
+      return;
+    }
     const subIds = siblingRows().map(r => r.dataset.taskId);
     try {
       await api("POST", "/api/tasks/reorder", { taskIds: subIds });
@@ -2511,6 +2512,7 @@ function buildSubtaskMiniCard(sub, group, project, groupTasks) {
 
   const mini = document.createElement("div");
   mini.className = "kanban-subtask-card";
+  mini.dataset.taskId = sub.id;
 
   const title = document.createElement("div");
   title.className = "kanban-subtask-card-title";
@@ -2540,12 +2542,71 @@ function buildSubtaskMiniCard(sub, group, project, groupTasks) {
   iconsRow.append(ownerIcon, statusIcon, dateIcon, noteIcon);
   mini.appendChild(iconsRow);
 
-  mini.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openTaskDetailModal(sub, group, project, groupTasks);
-  });
+  if (isAdmin()) {
+    mini.classList.add("kl-draggable");
+    mini.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      startKanbanSubtaskDrag(e, mini, sub, group, project, groupTasks);
+    });
+  } else {
+    mini.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openTaskDetailModal(sub, group, project, groupTasks);
+    });
+  }
 
   return mini;
+}
+
+/* Subtask mini-cards reorder among their own siblings within the same
+   parent card's subtask list, mirroring startSubListRowDrag. */
+function startKanbanSubtaskDrag(startEvent, mini, sub, group, project, groupTasks) {
+  const listEl = mini.parentElement;
+  const startX = startEvent.clientX;
+  const startY = startEvent.clientY;
+  const THRESHOLD = 4;
+  let dragging = false;
+
+  function siblingCards() {
+    return Array.from(listEl.children).filter(el => el.classList.contains("kanban-subtask-card"));
+  }
+
+  function onMouseMove(e) {
+    if (!dragging) {
+      if (Math.abs(e.clientX - startX) < THRESHOLD && Math.abs(e.clientY - startY) < THRESHOLD) return;
+      dragging = true;
+      mini.classList.add("dragging");
+      document.body.classList.add("task-row-dragging");
+    }
+    for (const sib of siblingCards()) {
+      if (sib === mini) continue;
+      const r = sib.getBoundingClientRect();
+      const mid = r.top + r.height / 2;
+      const miniBeforeSib = !!(mini.compareDocumentPosition(sib) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (e.clientY < mid && !miniBeforeSib) { listEl.insertBefore(mini, sib); break; }
+      if (e.clientY >= mid && miniBeforeSib) { listEl.insertBefore(mini, sib.nextSibling); break; }
+    }
+  }
+
+  async function onMouseUp() {
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+    document.body.classList.remove("task-row-dragging");
+    mini.classList.remove("dragging");
+    if (!dragging) {
+      openTaskDetailModal(sub, group, project, groupTasks);
+      return;
+    }
+    const subIds = siblingCards().map(el => el.dataset.taskId);
+    try {
+      await api("POST", "/api/tasks/reorder", { taskIds: subIds });
+    } catch (err) { alert(err.message); }
+    await loadAndRenderBoard();
+  }
+
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", onMouseUp);
 }
 
 /* Grabbing a card (mousedown+move past a small threshold) live-moves it
