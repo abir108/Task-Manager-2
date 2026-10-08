@@ -22,6 +22,11 @@ const DEFAULT_CATEGORY_LABELS = {
   archived: "Archived"
 };
 
+const ADMIN_EMAIL = "cloudtechacademybd@gmail.com";
+const ADMIN_PASSWORD = "Cloudtech2026";
+// Earlier builds seeded this address; it is moved to ADMIN_EMAIL on load.
+const OLD_BOOTSTRAP_EMAIL = "admin@cloudtechaccounting.com";
+
 function uid() {
   return crypto.randomUUID();
 }
@@ -41,21 +46,17 @@ function emptyStore() {
 function load() {
   if (!fs.existsSync(DATA_FILE)) {
     const store = emptyStore();
-    const adminPin = "1234";
-    const adminEmail = "admin@cloudtechaccounting.com";
-    const adminPassword = "cloudtech1122";
     store.members.push({
       id: uid(),
       name: "Admin",
-      pinHash: bcrypt.hashSync(adminPin, 10),
-      email: adminEmail,
-      passwordHash: bcrypt.hashSync(adminPassword, 10),
+      email: ADMIN_EMAIL,
+      passwordHash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
       role: "admin",
       createdAt: Date.now()
     });
     fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
     fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
-    console.log(`\nFirst run: created default admin login -> email "${adminEmail}", password "${adminPassword}" (also name "Admin", PIN "${adminPin}").`);
+    console.log(`\nFirst run: created default admin login -> email "${ADMIN_EMAIL}", password "${ADMIN_PASSWORD}".`);
     console.log("Log in and change this password immediately from Edit Profile.\n");
     return store;
   }
@@ -77,13 +78,14 @@ function load() {
     if (m.email === undefined) { m.email = null; changed = true; }
     if (m.passwordHash === undefined) { m.passwordHash = null; changed = true; }
   });
-  // One-time bootstrap: give the original Admin account an email+password
-  // login so switching the login screen to email-only doesn't lock out
-  // production, which still only has this account's legacy PIN.
-  const bootstrapAdmin = store.members.find(m => m.name === "Admin" && m.role === "admin" && !m.email);
+  // Login is email + password only. The original Admin account (legacy PIN
+  // only, or seeded with the old bootstrap email) gets the real admin email and
+  // initial password once; after that it is left alone.
+  const bootstrapAdmin = store.members.find(m =>
+    m.name === "Admin" && m.role === "admin" && (!m.email || m.email.toLowerCase() === OLD_BOOTSTRAP_EMAIL));
   if (bootstrapAdmin) {
-    bootstrapAdmin.email = "admin@cloudtechaccounting.com";
-    bootstrapAdmin.passwordHash = bcrypt.hashSync("cloudtech1122", 10);
+    bootstrapAdmin.email = ADMIN_EMAIL;
+    bootstrapAdmin.passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
     changed = true;
   }
   store.projects.forEach(p => {

@@ -30,7 +30,7 @@ app.use(session({
 }));
 
 /* ---------- Login rate limiting ---------- */
-const loginAttempts = new Map(); // key: lowercased name -> { count, lockedUntil }
+const loginAttempts = new Map(); // key: lowercased email -> { count, lockedUntil }
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 60 * 1000;
 
@@ -144,39 +144,18 @@ function deleteNotesForTaskIds(taskIds) {
 
 /* ---------- Auth routes ---------- */
 app.post("/api/login", (req, res) => {
-  // Primary path: email + password. Legacy path: name + PIN, kept so existing
-  // members aren't locked out until an admin migrates them via the Team page.
-  if (req.body.email !== undefined) {
-    const email = String(req.body.email || "").trim().toLowerCase();
-    const password = String(req.body.password || "").trim();
-    if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
 
-    const key = "email:" + email;
-    if (isLocked(key)) return res.status(429).json({ error: "Too many attempts. Try again in a minute." });
+  if (isLocked(email)) return res.status(429).json({ error: "Too many attempts. Try again in a minute." });
 
-    const member = store.members.find(m => m.email && m.email.toLowerCase() === email);
-    if (!member || !member.passwordHash || !bcrypt.compareSync(password, member.passwordHash)) {
-      registerFailure(key);
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
-    clearFailures(key);
-    req.session.userId = member.id;
-    return res.json({ member: publicMember(member) });
+  const member = store.members.find(m => m.email && m.email.toLowerCase() === email);
+  if (!member || !member.passwordHash || !bcrypt.compareSync(password, member.passwordHash)) {
+    registerFailure(email);
+    return res.status(401).json({ error: "Invalid email or password" });
   }
-
-  const name = String(req.body.name || "").trim();
-  const pin = String(req.body.pin || "").trim();
-  if (!name || !pin) return res.status(400).json({ error: "Name and PIN are required" });
-
-  const key = name.toLowerCase();
-  if (isLocked(key)) return res.status(429).json({ error: "Too many attempts. Try again in a minute." });
-
-  const member = store.members.find(m => m.name.toLowerCase() === key);
-  if (!member || !member.pinHash || !bcrypt.compareSync(pin, member.pinHash)) {
-    registerFailure(key);
-    return res.status(401).json({ error: "Invalid name or PIN" });
-  }
-  clearFailures(key);
+  clearFailures(email);
   req.session.userId = member.id;
   res.json({ member: publicMember(member) });
 });
@@ -224,7 +203,7 @@ app.post("/api/me/change-password", requireAuth, async (req, res) => {
   if (newPassword.length < 6) return res.status(400).json({ error: "New password must be at least 6 characters" });
   if (member.passwordHash) {
     if (!bcrypt.compareSync(currentPassword, member.passwordHash)) {
-      return res.status(401).json({ error: "Current password is incorrect" });
+      return res.status(400).json({ error: "Current password is incorrect" });
     }
   } else if (!member.email) {
     return res.status(400).json({ error: "Ask an admin to set your email and an initial password first" });
@@ -267,7 +246,7 @@ app.post("/api/members", requireAdmin, async (req, res) => {
   }
   const member = {
     id: uid(), name, role, avatarUrl, createdAt: Date.now(),
-    email, passwordHash: bcrypt.hashSync(password, 10), pinHash: null
+    email, passwordHash: bcrypt.hashSync(password, 10)
   };
   store.members.push(member);
   await save();
@@ -278,6 +257,10 @@ app.patch("/api/members/:id", requireAdmin, async (req, res) => {
   const member = store.members.find(m => m.id === req.params.id);
   if (!member) return res.status(404).json({ error: "Not found" });
 
+  if (req.body.email !== undefined && !member.passwordHash && !req.body.password) {
+    return res.status(400).json({ error: "Set a password for this member too, so they can log in" });
+  }
+
   if (req.body.name !== undefined) {
     const name = String(req.body.name).trim();
     if (!name) return res.status(400).json({ error: "Name cannot be empty" });
@@ -285,11 +268,6 @@ app.patch("/api/members/:id", requireAdmin, async (req, res) => {
       return res.status(409).json({ error: "That name is already in use" });
     }
     member.name = name;
-  }
-  if (req.body.pin !== undefined) {
-    const pin = String(req.body.pin).trim();
-    if (!/^\d{4,6}$/.test(pin)) return res.status(400).json({ error: "PIN must be 4-6 digits" });
-    member.pinHash = bcrypt.hashSync(pin, 10);
   }
   if (req.body.email !== undefined) {
     const email = String(req.body.email).trim().toLowerCase();

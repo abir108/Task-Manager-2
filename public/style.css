@@ -2204,14 +2204,6 @@ tr.sub-row td { padding-top: 7px; padding-bottom: 7px; }
 
 .hint-inline { font-weight: 400; color: var(--text-muted); text-transform: none; }
 
-.member-legacy-pin {
-  margin-bottom: 14px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.member-legacy-pin summary { cursor: pointer; font-weight: 600; }
-.member-legacy-pin label { margin: 10px 0 0; }
-
 .avatar-picker {
   display: flex;
   align-items: center;

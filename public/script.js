@@ -104,7 +104,7 @@ async function api(method, url, body) {
     opts.body = JSON.stringify(body);
   }
   const res = await fetch(url, opts);
-  if (res.status === 401) {
+  if (res.status === 401 && url !== "/api/login") {
     showLogin();
     throw new Error("Not logged in");
   }
@@ -129,8 +129,8 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
   const errEl = document.getElementById("login-error");
   errEl.textContent = "";
   const body = {
-    name: document.getElementById("login-name").value.trim(),
-    pin: document.getElementById("login-pin").value.trim()
+    email: document.getElementById("login-email").value.trim(),
+    password: document.getElementById("login-password").value
   };
   try {
     const data = await api("POST", "/api/login", body);
@@ -145,8 +145,8 @@ document.getElementById("btn-logout").addEventListener("click", async () => {
   await api("POST", "/api/logout").catch(() => {});
   me = null; team = []; members = []; projects = []; groups = []; tasks = []; folders = [];
   currentBoardProjectId = null;
-  document.getElementById("login-name").value = "";
-  document.getElementById("login-pin").value = "";
+  document.getElementById("login-email").value = "";
+  document.getElementById("login-password").value = "";
   document.body.classList.remove("role-member");
   showLogin();
 });
@@ -904,8 +904,6 @@ document.getElementById("btn-new-member").addEventListener("click", () => {
   document.getElementById("input-member-password").value = "";
   document.getElementById("input-member-password").placeholder = "At least 6 characters";
   document.getElementById("label-member-password").firstChild.textContent = "Password ";
-  document.getElementById("input-member-pin").value = "";
-  document.getElementById("input-member-pin").placeholder = "e.g. 4821";
   document.getElementById("input-member-admin").checked = false;
   document.getElementById("member-error").textContent = "";
   resetAvatarPicker(null);
@@ -920,8 +918,7 @@ document.getElementById("btn-save-member").addEventListener("click", async () =>
   const name = document.getElementById("input-member-name").value.trim();
   const email = document.getElementById("input-member-email").value.trim();
   const password = document.getElementById("input-member-password").value;
-  const pin = document.getElementById("input-member-pin").value.trim();
-  const admin = document.getElementById("input-member-admin").checked;
+  const admin =document.getElementById("input-member-admin").checked;
   if (!name) { errEl.textContent = "Please enter a name."; return; }
   const editId = btn.dataset.editId;
 
@@ -930,14 +927,12 @@ document.getElementById("btn-save-member").addEventListener("click", async () =>
       const body = { name, role: admin ? "admin" : "member" };
       if (email) body.email = email;
       if (password) body.password = password;
-      if (pin) body.pin = pin;
       if (pendingAvatarUrl !== undefined) body.avatarUrl = pendingAvatarUrl;
       await api("PATCH", `/api/members/${editId}`, body);
     } else {
       if (!email) { errEl.textContent = "Please enter an email address."; return; }
       if (!password) { errEl.textContent = "Please set an initial password."; return; }
       const body = { name, email, password, role: admin ? "admin" : "member" };
-      if (pin) body.pin = pin;
       if (pendingAvatarUrl) body.avatarUrl = pendingAvatarUrl;
       await api("POST", "/api/members", body);
     }
@@ -955,8 +950,6 @@ function openEditMember(m) {
   document.getElementById("input-member-password").value = "";
   document.getElementById("input-member-password").placeholder = "Leave blank to keep current password";
   document.getElementById("label-member-password").firstChild.textContent = "Reset password ";
-  document.getElementById("input-member-pin").value = "";
-  document.getElementById("input-member-pin").placeholder = "Leave blank to keep current PIN";
   document.getElementById("input-member-admin").checked = m.role === "admin";
   document.getElementById("member-error").textContent = "";
   resetAvatarPicker(m.avatarUrl);
@@ -985,7 +978,7 @@ async function renderTeam() {
       ${avatarHtml(m)}
       <div class="info">
         <div class="name">${escapeHtml(m.name)} ${m.role === "admin" ? '<span class="admin-badge">Admin</span>' : ""}</div>
-        <div class="member-email">${m.email ? escapeHtml(m.email) : '<em>No email set (legacy PIN login)</em>'}</div>
+        <div class="member-email">${m.email ? escapeHtml(m.email) : '<em>No email set — can\'t log in yet</em>'}</div>
       </div>
       <div class="actions">
         <button class="reset-pin-btn" data-action="edit">Edit</button>
