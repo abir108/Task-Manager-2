@@ -711,9 +711,36 @@ async function renderProfilePage() {
   const done = assigned.filter(t => t.status === "done");
   const rate = assigned.length ? Math.round((done.length / assigned.length) * 100) : 0;
 
+  const open = assigned.length - done.length;
+  const tone = (value, good, mid) => value >= good ? "good" : value >= mid ? "warn" : "bad";
+
   document.getElementById("profile-stat-assigned").textContent = assigned.length;
   document.getElementById("profile-stat-projects").textContent = projectIds.size;
   document.getElementById("profile-stat-rate").textContent = rate + "%";
+
+  const setVitalSub = (id, text, cls) => {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = "vital-sub " + cls;
+  };
+  const projectsWithOpen = new Set(assigned.filter(t => t.status !== "done").map(t => t.projectId)).size;
+  setVitalSub("vital-assigned-sub", `${done.length} done · ${open} open`, open === 0 && assigned.length ? "good" : "");
+  setVitalSub("vital-projects-sub", `${projectsWithOpen} with open tasks`, "");
+  setVitalSub("vital-rate-sub",
+    !assigned.length ? "No tasks yet" : rate >= 80 ? "On a strong pace" : rate >= 50 ? "Keep pushing" : "Needs attention",
+    !assigned.length ? "" : tone(rate, 80, 50));
+
+  document.getElementById("profile-hero-avatar").innerHTML =
+    avatarHtml(me, "width:104px;height:104px;font-size:38px;margin-left:0;border:4px solid var(--card-bg);box-shadow:0 0 0 2px var(--sky)");
+  document.getElementById("profile-hero-name").textContent = me.name;
+  document.getElementById("profile-crumb-name").textContent = me.name;
+  document.getElementById("profile-hero-email").textContent = me.email || "No email set";
+  document.getElementById("ph-role").textContent = isAdmin() ? "Admin" : "Member";
+  document.getElementById("ph-since").textContent = me.createdAt
+    ? new Date(me.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+    : "—";
+  document.getElementById("ph-projects").textContent = projectIds.size;
+  document.getElementById("ph-open").textContent = open;
   profileKpiTasks = assigned;
   profileKpiProjects = activeProjects;
   if (!profileKpiFilter) {
@@ -730,6 +757,15 @@ async function renderProfilePage() {
     .filter(t => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) >= 0)
     .map(task => ({ task, project: activeProjects.find(p => p.id === task.projectId) }))
     .sort((a, b) => new Date(a.task.dueDate) - new Date(b.task.dueDate));
+
+  document.getElementById("profile-stat-overdue").textContent = overdueRows.length;
+  setVitalSub("vital-overdue-sub", overdueRows.length ? "Needs attention" : "All clear", overdueRows.length ? "bad" : "good");
+  const nextRow = upcomingRows[0];
+  document.getElementById("ph-next").textContent = nextRow
+    ? `${formatDate(nextRow.task.dueDate)} · ${relativeDays(daysUntil(nextRow.task.dueDate))}`
+    : "None";
+  document.getElementById("profile-overdue-head").style.display = overdueRows.length ? "flex" : "none";
+  document.getElementById("profile-upcoming-head").style.display = upcomingRows.length ? "flex" : "none";
 
   const overdueList = document.getElementById("profile-overdue-list");
   overdueList.innerHTML = overdueRows.length ? taskListHtml(overdueRows) : "";
@@ -3468,12 +3504,29 @@ function kpiHtml(memberTasks, projects, periodLabel) {
       : `<p class="empty-hint">No tasks assigned yet. KPI appears once tasks are assigned.</p>`;
   }
   const k = computeKpi(memberTasks);
+  const tone = (value, good, mid) => value === null ? "" : value >= good ? "good" : value >= mid ? "warn" : "bad";
   const stats = `
-    <div class="stat-grid kpi-stat-grid">
-      <div class="stat-card"><div class="stat-value">${k.completion}%</div><div class="stat-label">Tasks completed (${k.done}/${k.assigned})</div></div>
-      <div class="stat-card"><div class="stat-value kpi-good">${k.onTimeRate === null ? "—" : k.onTimeRate + "%"}</div><div class="stat-label">Finished on time (${k.ontime} of ${k.ontime + k.late})</div></div>
-      <div class="stat-card"><div class="stat-value kpi-bad">${k.late}</div><div class="stat-label">Finished late${k.late ? ` · avg ${k.avgLate}d over` : ""}</div></div>
-      <div class="stat-card"><div class="stat-value kpi-bad">${k.overdue}</div><div class="stat-label">Overdue, not done</div></div>
+    <div class="vitals-grid kpi-vitals">
+      <div class="vital-card">
+        <div class="vital-title">Tasks completed</div>
+        <div class="vital-value">${k.completion}<small>%</small></div>
+        <div class="vital-sub ${tone(k.completion, 80, 50)}">${k.done} of ${k.assigned} tasks done</div>
+      </div>
+      <div class="vital-card">
+        <div class="vital-title">Finished on time</div>
+        <div class="vital-value">${k.onTimeRate === null ? "—" : k.onTimeRate}<small>${k.onTimeRate === null ? "" : "%"}</small></div>
+        <div class="vital-sub ${tone(k.onTimeRate, 70, 40)}">${k.ontime} of ${k.ontime + k.late} with a deadline</div>
+      </div>
+      <div class="vital-card">
+        <div class="vital-title">Finished late</div>
+        <div class="vital-value">${k.late}<small>tasks</small></div>
+        <div class="vital-sub ${k.late ? "warn" : "good"}">${k.late ? `avg ${k.avgLate}d over deadline` : "None late"}</div>
+      </div>
+      <div class="vital-card">
+        <div class="vital-title">Overdue</div>
+        <div class="vital-value">${k.overdue}<small>tasks</small></div>
+        <div class="vital-sub ${k.overdue ? "bad" : "good"}">${k.overdue ? "Not done, past due" : "All clear"}</div>
+      </div>
     </div>`;
 
   const byProject = new Map();
@@ -3489,10 +3542,10 @@ function kpiHtml(memberTasks, projects, periodLabel) {
     .map(([pid, tks]) => {
       const project = projects.find(p => p.id === pid);
       const pk = computeKpi(tks);
-      const parts = [`${pk.done}/${pk.assigned} done`];
-      if (pk.ontime) parts.push(`${pk.ontime} on time`);
-      if (pk.late) parts.push(`${pk.late} late`);
-      if (pk.overdue) parts.push(`${pk.overdue} overdue`);
+      const chips = [`<span class="kp-chip">${pk.done}/${pk.assigned} done</span>`];
+      if (pk.ontime) chips.push(`<span class="kpi-chip kpi-ontime">${pk.ontime} on time</span>`);
+      if (pk.late) chips.push(`<span class="kpi-chip kpi-late">${pk.late} late</span>`);
+      if (pk.overdue) chips.push(`<span class="kpi-chip kpi-overdue">${pk.overdue} overdue</span>`);
       const rows = tks
         .map(t => ({ t, o: kpiTaskOutcome(t) }))
         .sort((a, b) => rank[a.o.kind] - rank[b.o.kind])
@@ -3506,21 +3559,19 @@ function kpiHtml(memberTasks, projects, periodLabel) {
           </div>`).join("");
       return `
         <details class="kpi-project">
-          <summary>
-            <div class="rdr-main">
-              <span class="rdr-title">${project ? escapeHtml(project.name) : "Unknown project"}</span>
-              <span class="rdr-sub">${parts.join(" · ")}</span>
-            </div>
-            <div class="report-progress" style="min-width:130px">
-              <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pk.completion}%"></div></div>
+          <summary class="kp-summary">
+            <span class="kp-name">${project ? escapeHtml(project.name) : "Unknown project"}</span>
+            <span class="kp-chips">${chips.join("")}</span>
+            <span class="kp-progress">
+              <span class="progress-bar-bg"><span class="progress-bar-fill" style="width:${pk.completion}%"></span></span>
               <span class="report-progress-txt">${pk.completion}%</span>
-            </div>
+            </span>
           </summary>
           <div class="kpi-task-list">${rows}</div>
         </details>`;
     }).join("");
 
-  return `${stats}<h3 class="kpi-sub-head">By project</h3>${projectsHtml}`;
+  return `${stats}<h3 class="kpi-sub-head">By project</h3><div class="list-head kp-head"><span>Project</span><span>Result</span><span>Progress</span></div>${projectsHtml}`;
 }
 
 /* ---------- Date-range filter (Report page + My Profile) ---------- */

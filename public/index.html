@@ -172,47 +172,72 @@
 
     <!-- ===== MY PROFILE VIEW (task overview) ===== -->
     <section id="view-profile" class="view">
-      <header class="view-header">
-        <div>
-          <h1>My Profile</h1>
-          <p class="subtitle">What's on your plate</p>
-        </div>
-        <button class="btn btn-ghost" id="btn-goto-edit-profile">Edit Profile</button>
-      </header>
+      <nav class="crumbs" aria-label="Breadcrumb">
+        <span>Profile</span><span class="sep">&rsaquo;</span><span>Overview</span><span class="sep">&rsaquo;</span><b id="profile-crumb-name">Me</b>
+      </nav>
 
       <div class="profile-tasks-col">
-        <div class="stat-grid profile-stat-grid">
-          <div class="stat-card">
-            <div class="stat-value" id="profile-stat-assigned">0</div>
-            <div class="stat-label">Tasks assigned</div>
+        <div class="panel profile-hero">
+          <div class="ph-main">
+            <div id="profile-hero-avatar"></div>
+            <h1 id="profile-hero-name" class="ph-name">—</h1>
+            <div id="profile-hero-email" class="ph-email">—</div>
+            <button class="btn-outline" id="btn-goto-edit-profile">Edit Profile</button>
           </div>
-          <div class="stat-card">
-            <div class="stat-value" id="profile-stat-projects">0</div>
-            <div class="stat-label">Projects</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value" id="profile-stat-rate">0%</div>
-            <div class="stat-label">Completion rate</div>
+          <div class="ph-divider"></div>
+          <div class="ph-details">
+            <div class="ph-item"><span class="ph-label">Role</span><span class="ph-value" id="ph-role">—</span></div>
+            <div class="ph-item"><span class="ph-label">Status</span><span class="ph-value">Active</span></div>
+            <div class="ph-item"><span class="ph-label">Member since</span><span class="ph-value" id="ph-since">—</span></div>
+            <div class="ph-item"><span class="ph-label">Projects</span><span class="ph-value" id="ph-projects">—</span></div>
+            <div class="ph-item"><span class="ph-label">Open tasks</span><span class="ph-value" id="ph-open">—</span></div>
+            <div class="ph-item"><span class="ph-label">Next deadline</span><span class="ph-value" id="ph-next">—</span></div>
           </div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head-row">
-            <h2>My KPI</h2>
-            <div id="profile-period-filter"></div>
+        <h3 class="section-title">Current overview</h3>
+        <div class="vitals-grid">
+          <div class="vital-card">
+            <div class="vital-title">Tasks assigned</div>
+            <div class="vital-value"><span id="profile-stat-assigned">0</span><small>tasks</small></div>
+            <div class="vital-sub" id="vital-assigned-sub">&nbsp;</div>
           </div>
+          <div class="vital-card">
+            <div class="vital-title">Projects</div>
+            <div class="vital-value"><span id="profile-stat-projects">0</span><small>projects</small></div>
+            <div class="vital-sub" id="vital-projects-sub">&nbsp;</div>
+          </div>
+          <div class="vital-card">
+            <div class="vital-title">Completion rate</div>
+            <div class="vital-value"><span id="profile-stat-rate">0%</span></div>
+            <div class="vital-sub" id="vital-rate-sub">&nbsp;</div>
+          </div>
+          <div class="vital-card">
+            <div class="vital-title">Overdue</div>
+            <div class="vital-value"><span id="profile-stat-overdue">0</span><small>tasks</small></div>
+            <div class="vital-sub" id="vital-overdue-sub">&nbsp;</div>
+          </div>
+        </div>
+
+        <div class="section-head">
+          <h3 class="section-title">My KPI</h3>
+          <div id="profile-period-filter"></div>
+        </div>
+        <div class="panel">
           <p class="kpi-note">Each task counts 100% once you mark it Done. Finishing by its due date counts as on time. Tasks are counted in the period of their due date.</p>
           <div id="profile-kpi"></div>
         </div>
 
+        <h3 class="section-title">Overdue</h3>
         <div class="panel">
-          <h2>Overdue</h2>
+          <div class="list-head" id="profile-overdue-head"><span>Task</span><span>Due date</span></div>
           <div id="profile-overdue-list" class="report-detail-list"></div>
           <p id="profile-overdue-empty" class="empty-hint">Nothing overdue. Nice work!</p>
         </div>
 
+        <h3 class="section-title">Upcoming</h3>
         <div class="panel">
-          <h2>Upcoming</h2>
+          <div class="list-head" id="profile-upcoming-head"><span>Task</span><span>Due date</span></div>
           <div id="profile-upcoming-list" class="report-detail-list"></div>
           <p id="profile-upcoming-empty" class="empty-hint">Nothing due soon.</p>
         </div>
