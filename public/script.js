@@ -42,12 +42,12 @@ function applyTheme(theme) {
   if (btn) btn.classList.toggle("active", theme === "dark");
 }
 (function initTheme() {
-  const saved = localStorage.getItem("theme") || "light";
+  const saved = localStorage.getItem("uiTheme") || "dark";
   applyTheme(saved);
 })();
 document.getElementById("btn-theme-toggle").addEventListener("click", () => {
   const next = document.body.classList.contains("theme-dark") ? "light" : "dark";
-  localStorage.setItem("theme", next);
+  localStorage.setItem("uiTheme", next);
   applyTheme(next);
 });
 
