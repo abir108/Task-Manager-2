@@ -694,6 +694,7 @@ async function renderProfilePage() {
   document.getElementById("profile-stat-assigned").textContent = assigned.length;
   document.getElementById("profile-stat-projects").textContent = projectIds.size;
   document.getElementById("profile-stat-rate").textContent = rate + "%";
+  document.getElementById("profile-kpi").innerHTML = kpiHtml(assigned, activeProjects);
 
   const overdueRows = assigned
     .filter(t => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) < 0)
@@ -1371,6 +1372,45 @@ function openDueDatePopover(anchor, currentDate, onSave) {
   });
 }
 
+function openStatusPopover(anchor, task, group) {
+  showPopover(anchor, (pop) => renderStatusPicker(pop, task, group));
+}
+
+async function patchTaskAndReload(task, patch) {
+  try { await api("PATCH", `/api/tasks/${task.id}`, patch); } catch (err) { alert(err.message); }
+  await loadAndRenderBoard();
+}
+
+/* Makes an icon/cell a click target of its own: mousedown is swallowed so it
+   never arms the row/card drag, and click is swallowed so it never reaches the
+   row's "open task detail" handler. */
+function bindQuietAction(el, handler) {
+  el.classList.add("is-action");
+  el.addEventListener("mousedown", e => e.stopPropagation());
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeAllPopovers();
+    handler(el);
+  });
+}
+
+function canChangeStatus(task) {
+  return isAdmin() || (!!me && (task.assigneeIds || []).includes(me.id));
+}
+
+/* Status / owner / due-date cells of a list row each open only their own
+   small picker (same pickers the kanban card icons use). */
+function wireListCellActions(task, group, project, cells) {
+  const assigneeIds = task.assigneeIds || [];
+  if (canChangeStatus(task)) {
+    bindQuietAction(cells.statusCell, el => openStatusPopover(el, task, group));
+  }
+  if (isAdmin()) {
+    bindQuietAction(cells.ownerCell, el => openAssigneePopover(el, project, assigneeIds, ids => patchTaskAndReload(task, { assigneeIds: ids })));
+    bindQuietAction(cells.dueCell, el => openDueDatePopover(el, task.dueDate, value => patchTaskAndReload(task, { dueDate: value })));
+  }
+}
+
 /* ---------- Status picker (member: pick only) ---------- */
 function renderStatusPicker(pop, task, group) {
   pop.innerHTML = "";
@@ -1678,7 +1718,7 @@ function buildGroupList(group, topTasks, groupTasks, project) {
 
   const header = document.createElement("div");
   header.className = "kanban-list-header-row";
-  header.innerHTML = `<span class="kl-col-task">Task</span><span class="kl-col-notes"></span><span class="kl-col-status">Status</span><span class="kl-col-owner">Owner</span><span class="kl-col-due">Due date</span>`;
+  header.innerHTML = `<span class="kl-col-task">Task</span><span class="kl-col-notes"></span><span class="kl-col-status">Status</span><span class="kl-col-owner">Owner</span><span class="kl-col-due">Due date</span>` + (isAdmin() ? `<span class="kl-col-actions"></span>` : "");
   wrap.appendChild(header);
 
   const listEl = document.createElement("div");
@@ -1688,6 +1728,10 @@ function buildGroupList(group, topTasks, groupTasks, project) {
     const subitems = groupTasks.filter(t => t.parentId === task.id);
     if (subitems.length > 0 && expandedSubtaskCards.has(task.id)) {
       subitems.forEach(sub => listEl.appendChild(buildSubListRow(sub, task, group, project, groupTasks)));
+    }
+    if (pendingSubtaskAddFor === task.id) {
+      pendingSubtaskAddFor = null;
+      listEl.appendChild(buildSubListAddRow(task, group));
     }
   });
   wrap.appendChild(listEl);
@@ -1779,7 +1823,28 @@ function buildListRow(task, group, project, groupTasks) {
   dueCell.textContent = task.dueDate ? formatDate(task.dueDate) : "—";
   row.appendChild(dueCell);
 
+  wireListCellActions(task, group, project, { statusCell, ownerCell, dueCell });
+
   if (isAdmin()) {
+    const actions = document.createElement("span");
+    actions.className = "kl-col-actions";
+
+    const addSubBtn = document.createElement("button");
+    addSubBtn.type = "button";
+    addSubBtn.className = "kl-add-sub";
+    addSubBtn.innerHTML = "+";
+    addSubBtn.title = "Add subtask";
+    bindQuietAction(addSubBtn, () => {
+      expandedSubtaskCards.add(task.id);
+      pendingSubtaskAddFor = task.id;
+      renderBoard();
+      requestAnimationFrame(() => {
+        const input = document.querySelector(`.kl-sub-add-row[data-parent-id="${task.id}"] input`);
+        if (input) input.focus();
+      });
+    });
+    actions.appendChild(addSubBtn);
+
     const delBtn = document.createElement("button");
     delBtn.type = "button";
     delBtn.className = "kl-del";
@@ -1792,7 +1857,8 @@ function buildListRow(task, group, project, groupTasks) {
       try { await api("DELETE", `/api/tasks/${task.id}`); } catch (err) { alert(err.message); }
       await loadAndRenderBoard();
     });
-    row.appendChild(delBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
   }
 
   if (isAdmin()) {
@@ -1859,6 +1925,8 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
   dueCell.textContent = sub.dueDate ? formatDate(sub.dueDate) : "—";
   row.appendChild(dueCell);
 
+  wireListCellActions(sub, group, project, { statusCell, ownerCell, dueCell });
+
   if (isAdmin()) {
     const delBtn = document.createElement("button");
     delBtn.type = "button";
@@ -1872,7 +1940,10 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
       try { await api("DELETE", `/api/tasks/${sub.id}`); } catch (err) { alert(err.message); }
       await loadAndRenderBoard();
     });
-    row.appendChild(delBtn);
+    const actions = document.createElement("span");
+    actions.className = "kl-col-actions";
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
   }
 
   if (isAdmin()) {
@@ -1889,6 +1960,38 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
     });
   }
 
+  return row;
+}
+
+function buildSubListAddRow(parentTask, group) {
+  const row = document.createElement("div");
+  row.className = "kanban-list-row kl-sub-row kl-sub-add-row";
+  row.dataset.parentId = parentTask.id;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "kl-sub-add-input";
+  input.placeholder = "Subtask name — press Enter";
+
+  let committed = false;
+  const commit = async () => {
+    if (committed) return;
+    committed = true;
+    const title = input.value.trim();
+    if (!title) { renderBoard(); return; }
+    try {
+      await api("POST", "/api/tasks", { projectId: currentBoardProjectId, groupId: group.id, title, parentId: parentTask.id });
+    } catch (err) { alert(err.message); }
+    await loadAndRenderBoard();
+  };
+  input.addEventListener("mousedown", e => e.stopPropagation());
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape" && !committed) { committed = true; renderBoard(); }
+  });
+  input.addEventListener("blur", () => { if (!committed) commit(); });
+
+  row.appendChild(input);
   return row;
 }
 
@@ -1973,7 +2076,7 @@ function startSubListRowDrag(startEvent, row, sub, group, project, groupTasks) {
   let dragging = false;
 
   function siblingRows() {
-    return Array.from(listEl.children).filter(r => r.classList.contains("kl-sub-row") && r.dataset.parentId === parentId);
+    return Array.from(listEl.children).filter(r => r.classList.contains("kl-sub-row") && r.dataset.parentId === parentId && r.dataset.taskId);
   }
 
   function onMouseMove(e) {
@@ -2541,6 +2644,15 @@ function buildSubtaskMiniCard(sub, group, project, groupTasks) {
   noteIcon.innerHTML = ICON_CHAT + (subNoteCount > 0 ? " " + subNoteCount : "");
   iconsRow.append(ownerIcon, statusIcon, dateIcon, noteIcon);
   mini.appendChild(iconsRow);
+
+  if (canChangeStatus(sub)) {
+    bindQuietAction(statusIcon, el => openStatusPopover(el, sub, group));
+  }
+  if (isAdmin()) {
+    bindQuietAction(ownerIcon, el => openAssigneePopover(el, project, assigneeIds, ids => patchTaskAndReload(sub, { assigneeIds: ids })));
+    bindQuietAction(dateIcon, el => openDueDatePopover(el, sub.dueDate, value => patchTaskAndReload(sub, { dueDate: value })));
+  }
+  bindQuietAction(noteIcon, () => openNotesModal(sub));
 
   if (isAdmin()) {
     mini.classList.add("kl-draggable");
@@ -3318,6 +3430,111 @@ function sortAssignedTasks(list) {
   });
 }
 
+/* ---------- Member KPI (task-based) ----------
+   Every task a member is assigned to counts as 100% once it is marked Done.
+   A done task is "on time" if it was completed by the end of its due date,
+   otherwise "late by N days". An open task past its due date is "overdue". */
+function kpiTaskOutcome(task) {
+  const dueEnd = task.dueDate ? new Date(task.dueDate + "T23:59:59").getTime() : NaN;
+  if (task.status === "done") {
+    if (isNaN(dueEnd) || !task.completedAt) return { kind: "nodeadline", label: "Done · no deadline" };
+    if (task.completedAt <= dueEnd) return { kind: "ontime", label: "Done on time" };
+    const days = Math.ceil((task.completedAt - dueEnd) / 86400000);
+    return { kind: "late", days, label: `Done ${days}d late` };
+  }
+  if (!isNaN(dueEnd) && Date.now() > dueEnd) {
+    const days = Math.ceil((Date.now() - dueEnd) / 86400000);
+    return { kind: "overdue", days, label: `Overdue ${days}d` };
+  }
+  return { kind: "open", label: "In progress" };
+}
+
+function computeKpi(tasks) {
+  const k = { assigned: tasks.length, done: 0, ontime: 0, late: 0, nodeadline: 0, overdue: 0, open: 0, lateDays: 0 };
+  tasks.forEach(t => {
+    const o = kpiTaskOutcome(t);
+    k[o.kind]++;
+    if (t.status === "done") k.done++;
+    if (o.kind === "late") k.lateDays += o.days;
+  });
+  k.completion = k.assigned ? Math.round((k.done / k.assigned) * 100) : 0;
+  const timed = k.ontime + k.late;
+  k.onTimeRate = timed ? Math.round((k.ontime / timed) * 100) : null;
+  k.avgLate = k.late ? (k.lateDays / k.late).toFixed(1) : "0";
+  return k;
+}
+
+function kpiHtml(memberTasks, projects) {
+  if (!memberTasks.length) {
+    return `<p class="empty-hint">No tasks assigned yet. KPI appears once tasks are assigned.</p>`;
+  }
+  const k = computeKpi(memberTasks);
+  const stats = `
+    <div class="stat-grid kpi-stat-grid">
+      <div class="stat-card"><div class="stat-value">${k.completion}%</div><div class="stat-label">Tasks completed (${k.done}/${k.assigned})</div></div>
+      <div class="stat-card"><div class="stat-value kpi-good">${k.onTimeRate === null ? "—" : k.onTimeRate + "%"}</div><div class="stat-label">Finished on time (${k.ontime} of ${k.ontime + k.late})</div></div>
+      <div class="stat-card"><div class="stat-value kpi-bad">${k.late}</div><div class="stat-label">Finished late${k.late ? ` · avg ${k.avgLate}d over` : ""}</div></div>
+      <div class="stat-card"><div class="stat-value kpi-bad">${k.overdue}</div><div class="stat-label">Overdue, not done</div></div>
+    </div>`;
+
+  const byProject = new Map();
+  memberTasks.forEach(t => {
+    if (!byProject.has(t.projectId)) byProject.set(t.projectId, []);
+    byProject.get(t.projectId).push(t);
+  });
+  const rank = { overdue: 0, open: 1, late: 2, nodeadline: 3, ontime: 4 };
+  const fmtTs = ts => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+  const projectsHtml = Array.from(byProject.entries())
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([pid, tks]) => {
+      const project = projects.find(p => p.id === pid);
+      const pk = computeKpi(tks);
+      const parts = [`${pk.done}/${pk.assigned} done`];
+      if (pk.ontime) parts.push(`${pk.ontime} on time`);
+      if (pk.late) parts.push(`${pk.late} late`);
+      if (pk.overdue) parts.push(`${pk.overdue} overdue`);
+      const rows = tks
+        .map(t => ({ t, o: kpiTaskOutcome(t) }))
+        .sort((a, b) => rank[a.o.kind] - rank[b.o.kind])
+        .map(({ t, o }) => `
+          <div class="kpi-task-row">
+            <div class="rdr-main">
+              <span class="rdr-title">${t.parentId ? "↳ " : ""}${escapeHtml(t.title)}</span>
+              <span class="rdr-sub">${t.dueDate ? "Due " + formatDate(t.dueDate) : "No due date"}${t.status === "done" && t.completedAt ? " · Done " + fmtTs(t.completedAt) : ""}</span>
+            </div>
+            <span class="kpi-chip kpi-${o.kind}">${escapeHtml(o.label)}</span>
+          </div>`).join("");
+      return `
+        <details class="kpi-project">
+          <summary>
+            <div class="rdr-main">
+              <span class="rdr-title">${project ? escapeHtml(project.name) : "Unknown project"}</span>
+              <span class="rdr-sub">${parts.join(" · ")}</span>
+            </div>
+            <div class="report-progress" style="min-width:130px">
+              <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pk.completion}%"></div></div>
+              <span class="report-progress-txt">${pk.completion}%</span>
+            </div>
+          </summary>
+          <div class="kpi-task-list">${rows}</div>
+        </details>`;
+    }).join("");
+
+  return `${stats}<h3 class="kpi-sub-head">By project</h3>${projectsHtml}`;
+}
+
+function renderReportKpi() {
+  const memberId = document.getElementById("report-kpi-member").value;
+  const body = document.getElementById("report-kpi-body");
+  if (!memberId) {
+    body.innerHTML = `<p class="empty-hint">Pick a member to see their KPI and how much of each project they finished.</p>`;
+    return;
+  }
+  const tasks = reportAllTasksCache.filter(t => (t.assigneeIds || []).includes(memberId));
+  body.innerHTML = kpiHtml(tasks, reportAllProjectsCache);
+}
+
 function openEmployeeDetail(row) {
   const breakdown = employeeProjectBreakdown(row.member.id);
   const allAssignedTasks = reportAllTasksCache
@@ -3436,6 +3653,13 @@ async function renderReportPage() {
   reportAllTasksCache = allTasks;
   reportAllProjectsCache = activeProjects;
   reportMembersCache = allMembers;
+
+  const kpiSelect = document.getElementById("report-kpi-member");
+  const prevKpiMember = kpiSelect.value;
+  kpiSelect.innerHTML = `<option value="">Select a member…</option>` +
+    allMembers.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
+  if (allMembers.some(m => m.id === prevKpiMember)) kpiSelect.value = prevKpiMember;
+  renderReportKpi();
 
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86400000);
@@ -3573,6 +3797,8 @@ async function renderReportPage() {
     });
   }
 }
+
+document.getElementById("report-kpi-member").addEventListener("change", renderReportKpi);
 
 document.getElementById("report-stat-overdue-tasks").addEventListener("click", () => {
   openReportDetail(

@@ -197,6 +197,12 @@
         </div>
 
         <div class="panel">
+          <h2>My KPI</h2>
+          <p class="kpi-note">Each task counts 100% once you mark it Done. Finishing by its due date counts as on time.</p>
+          <div id="profile-kpi"></div>
+        </div>
+
+        <div class="panel">
           <h2>Overdue</h2>
           <div id="profile-overdue-list" class="report-detail-list"></div>
           <p id="profile-overdue-empty" class="empty-hint">Nothing overdue. Nice work!</p>
@@ -318,6 +324,14 @@
           </table>
         </div>
         <p id="report-employee-empty" class="empty-hint">No team members yet.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head-row">
+          <h2>Member KPI</h2>
+          <select id="report-kpi-member" class="kpi-member-select"></select>
+        </div>
+        <div id="report-kpi-body"></div>
       </div>
 
       <div class="panel">
