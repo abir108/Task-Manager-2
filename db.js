@@ -157,6 +157,20 @@ function load() {
       changed = true;
     }
   });
+  // A task whose subtasks are all Done is itself Done; bring existing data in line.
+  const touchedProjects = new Set();
+  new Set(store.tasks.filter(t => t.parentId).map(t => t.parentId)).forEach(parentId => {
+    const parent = store.tasks.find(t => t.id === parentId);
+    const before = parent && parent.status;
+    syncParentFromSubtasks(parentId, store);
+    if (parent && parent.status !== before) touchedProjects.add(parent.projectId);
+  });
+  if (touchedProjects.size) {
+    touchedProjects.forEach(pid => recomputeProjectCategory(pid, store));
+    changed = true;
+    console.log(`Marked parent tasks Done where all their subtasks were already Done (${touchedProjects.size} project(s) affected).`);
+  }
+
   if (changed) persistSync(store);
   return store;
 }
@@ -173,15 +187,45 @@ function save() {
   return writeChain;
 }
 
+/* When every subtask of a task is Done, the task itself becomes Done (finished
+   when its last subtask was). If a subtask is reopened later, a task completed
+   this way goes back to the status it had; a task someone set to Done by hand
+   is left alone. `s` is the store to work on (defaults to the live one). */
+function syncParentFromSubtasks(parentId, s = store) {
+  const parent = s.tasks.find(t => t.id === parentId);
+  if (!parent) return;
+  const subs = s.tasks.filter(t => t.parentId === parentId);
+  if (subs.length === 0) return;
+  const group = s.groups.find(g => g.id === parent.groupId);
+  const allDone = subs.every(t => t.status === "done");
+
+  if (allDone && parent.status !== "done") {
+    parent.autoDoneFrom = parent.status;
+    parent.status = "done";
+    parent.completedAt = Math.max(0, ...subs.map(t => t.completedAt || 0)) || Date.now();
+    if (parent.isQueryTrigger) {
+      const project = s.projects.find(p => p.id === parent.projectId);
+      if (project) project.category = "query";
+    }
+  } else if (!allDone && parent.status === "done" && parent.autoDoneFrom) {
+    const previous = group && group.statuses.some(st => st.id === parent.autoDoneFrom)
+      ? parent.autoDoneFrom
+      : (group ? group.statuses[0].id : parent.status);
+    parent.status = previous;
+    parent.completedAt = null;
+    delete parent.autoDoneFrom;
+  }
+}
+
 /* Recompute a project's category based on its tasks' completion state.
    All tasks (including subitems) done -> "completed".
    If it was auto-completed but no longer all-done -> back to "running".
    Manual "query" state is left alone unless the project just became fully done. */
-function recomputeProjectCategory(projectId) {
-  const project = store.projects.find(p => p.id === projectId);
+function recomputeProjectCategory(projectId, s = store) {
+  const project = s.projects.find(p => p.id === projectId);
   if (!project) return;
   if (project.category === "archived") return;
-  const tasks = store.tasks.filter(t => t.projectId === projectId);
+  const tasks = s.tasks.filter(t => t.projectId === projectId);
   if (tasks.length === 0) return;
   const allDone = tasks.every(t => t.status === "done");
   if (allDone) {
@@ -191,4 +235,4 @@ function recomputeProjectCategory(projectId) {
   }
 }
 
-module.exports = { store, save, uid, recomputeProjectCategory, normalizeMembers, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
+module.exports = { store, save, uid, recomputeProjectCategory, syncParentFromSubtasks, normalizeMembers, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };

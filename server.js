@@ -5,7 +5,7 @@ const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
-const { store, save, uid, recomputeProjectCategory, normalizeMembers, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
+const { store, save, uid, recomputeProjectCategory, syncParentFromSubtasks, normalizeMembers, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 8790;
@@ -683,6 +683,8 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
     if (task.isQueryTrigger && task.status === "done") {
       project.category = "query";
     }
+    if (task.parentId) syncParentFromSubtasks(task.parentId);
+    else delete task.autoDoneFrom;
     recomputeProjectCategory(task.projectId);
   }
 
@@ -696,6 +698,10 @@ app.delete("/api/tasks/:id", requireAdmin, async (req, res) => {
   const removedIds = store.tasks.filter(t => t.id === task.id || t.parentId === task.id).map(t => t.id);
   store.tasks = store.tasks.filter(t => t.id !== task.id && t.parentId !== task.id);
   deleteNotesForTaskIds(removedIds);
+  if (task.parentId) {
+    syncParentFromSubtasks(task.parentId);
+    recomputeProjectCategory(task.projectId);
+  }
   await save();
   res.json({ ok: true });
 });
