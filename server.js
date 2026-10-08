@@ -5,7 +5,7 @@ const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
-const { store, save, uid, recomputeProjectCategory, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
+const { store, save, uid, recomputeProjectCategory, normalizeMembers, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 8790;
@@ -855,6 +855,7 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
     }
   });
 
+  normalizeMembers(incoming.members);
   store.members = incoming.members;
   store.projects = incoming.projects;
   store.groups = incoming.groups;

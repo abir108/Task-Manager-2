@@ -43,6 +43,32 @@ function emptyStore() {
   };
 }
 
+/* Login is email + password only. Applied on startup and after a restore, since
+   an older backup has no email/password on its Admin account. The original
+   Admin (legacy PIN only, or seeded with the old bootstrap email) gets the real
+   admin email and initial password once. If, after that, no admin could log in
+   at all, the first admin gets them so the system can never be locked out. */
+function normalizeMembers(members) {
+  let changed = false;
+  members.forEach(m => {
+    if (m.email === undefined) { m.email = null; changed = true; }
+    if (m.passwordHash === undefined) { m.passwordHash = null; changed = true; }
+  });
+  const grantAdminLogin = (m) => {
+    m.email = ADMIN_EMAIL;
+    m.passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
+    changed = true;
+  };
+  const bootstrapAdmin = members.find(m =>
+    m.name === "Admin" && m.role === "admin" && (!m.email || m.email.toLowerCase() === OLD_BOOTSTRAP_EMAIL));
+  if (bootstrapAdmin) grantAdminLogin(bootstrapAdmin);
+  if (!members.some(m => m.role === "admin" && m.email && m.passwordHash)) {
+    const firstAdmin = members.find(m => m.role === "admin");
+    if (firstAdmin) grantAdminLogin(firstAdmin);
+  }
+  return changed;
+}
+
 function load() {
   if (!fs.existsSync(DATA_FILE)) {
     const store = emptyStore();
@@ -73,21 +99,7 @@ function load() {
     if (!store.categoryLabels[key]) store.categoryLabels[key] = DEFAULT_CATEGORY_LABELS[key];
   });
 
-  let changed = false;
-  store.members.forEach(m => {
-    if (m.email === undefined) { m.email = null; changed = true; }
-    if (m.passwordHash === undefined) { m.passwordHash = null; changed = true; }
-  });
-  // Login is email + password only. The original Admin account (legacy PIN
-  // only, or seeded with the old bootstrap email) gets the real admin email and
-  // initial password once; after that it is left alone.
-  const bootstrapAdmin = store.members.find(m =>
-    m.name === "Admin" && m.role === "admin" && (!m.email || m.email.toLowerCase() === OLD_BOOTSTRAP_EMAIL));
-  if (bootstrapAdmin) {
-    bootstrapAdmin.email = ADMIN_EMAIL;
-    bootstrapAdmin.passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
-    changed = true;
-  }
+  let changed = normalizeMembers(store.members);
   store.projects.forEach(p => {
     if (!p.category || !PROJECT_CATEGORIES.includes(p.category)) {
       p.category = "running";
@@ -166,4 +178,4 @@ function recomputeProjectCategory(projectId) {
   }
 }
 
-module.exports = { store, save, uid, recomputeProjectCategory, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
+module.exports = { store, save, uid, recomputeProjectCategory, normalizeMembers, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
