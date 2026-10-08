@@ -97,7 +97,26 @@ function load() {
   let changed = !hasStore || !hasMembers;
   if (hasMembers) {
     const fromFile = JSON.parse(fs.readFileSync(MEMBERS_FILE, "utf8"));
-    store.members = Array.isArray(fromFile) ? fromFile : [];
+    const fileMembers = Array.isArray(fromFile) ? fromFile : [];
+    const inline = Array.isArray(store.members) ? store.members : [];
+    // A members.json holding only the auto-created placeholder admin, next to a
+    // store.json that still carries a team, means an old store.json was copied
+    // in after the first start: the real team is the one in store.json.
+    const placeholder = fileMembers.length === 1 && fileMembers[0].role === "admin" && fileMembers[0].email === ADMIN_EMAIL
+      ? fileMembers[0] : null;
+    if (placeholder && inline.length > 0) {
+      const oldAdmin = inline.find(m => m.role === "admin" &&
+        (!m.email || m.email.toLowerCase() === OLD_BOOTSTRAP_EMAIL || m.email === ADMIN_EMAIL));
+      if (oldAdmin) {
+        oldAdmin.email = placeholder.email;
+        oldAdmin.passwordHash = placeholder.passwordHash;
+      }
+      store.members = inline;
+      changed = true;
+      console.log(`Adopted ${inline.length} team member(s) found in store.json into members.json.`);
+    } else {
+      store.members = fileMembers;
+    }
   } else if (!Array.isArray(store.members)) {
     store.members = [];
   }

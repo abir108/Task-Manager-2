@@ -831,6 +831,8 @@ body.role-member #nav-team { display: none; }
   font-weight: 700;
   border: 2px solid var(--card-bg);
   margin-left: -8px;
+  flex-shrink: 0;
+  aspect-ratio: 1 / 1;
 }
 
 .avatar:first-child { margin-left: 0; }
@@ -909,7 +911,7 @@ body.role-member #nav-team { display: none; }
 /* ---------- Team grid ---------- */
 .team-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
 }
 
@@ -917,33 +919,46 @@ body.role-member #nav-team { display: none; }
   background: var(--card-bg);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 18px;
+  padding: 16px 18px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+  min-width: 0;
+  transition: box-shadow .15s, transform .15s;
 }
+.member-card:hover { box-shadow: 0 6px 18px rgba(20,20,50,0.12); transform: translateY(-1px); }
 
 .member-card .avatar {
-  width: 42px;
-  height: 42px;
-  font-size: 15px;
+  width: 54px;
+  height: 54px;
+  font-size: 19px;
   margin-left: 0;
-  border: none;
+  border: 3px solid var(--accent-light);
+  box-shadow: 0 1px 4px rgba(20,20,50,0.12);
 }
 
-.member-card .info { flex: 1; }
-.member-card .info .name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.member-card .info { flex: 1; min-width: 0; }
+.member-card .info .name { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .member-card .info .role { color: var(--text-muted); font-size: 12px; }
-.member-card .member-email { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.member-card .member-email {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-card .member-email.no-email { white-space: normal; }
 .member-card .member-email em { font-style: italic; }
-.member-card .actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.member-card .actions { display: flex; flex-direction: row; gap: 6px; align-items: center; flex-shrink: 0; }
 .member-card .reset-pin-btn {
-  background: none;
+  background: var(--bg-subtle);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
   cursor: pointer;
 }
 .member-card .reset-pin-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -963,9 +978,13 @@ body.role-member #nav-team { display: none; }
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
 }
-.member-card .remove-btn:hover { color: var(--high); }
+.member-card .remove-btn:hover { color: var(--high); background: rgba(239, 106, 106, 0.12); }
 
 /* ---------- Board: Monday-style task table ---------- */
 #board-title {

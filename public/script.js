@@ -978,7 +978,7 @@ async function renderTeam() {
       ${avatarHtml(m)}
       <div class="info">
         <div class="name">${escapeHtml(m.name)} ${m.role === "admin" ? '<span class="admin-badge">Admin</span>' : ""}</div>
-        <div class="member-email">${m.email ? escapeHtml(m.email) : '<em>No email set — can\'t log in yet</em>'}</div>
+        <div class="member-email${m.email ? "" : " no-email"}"${m.email ? ` title="${escapeHtml(m.email)}"` : ""}>${m.email ? escapeHtml(m.email) : "<em>No email set — can't log in yet</em>"}</div>
       </div>
       <div class="actions">
         <button class="reset-pin-btn" data-action="edit">Edit</button>
