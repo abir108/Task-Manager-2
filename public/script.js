@@ -2,7 +2,7 @@
    WorkFlow — Project Dashboard (multi-user, server-backed)
 =========================================================== */
 
-const COLORS = ["#5b5ff0", "#ef6a6a", "#f2b94a", "#6fcf97", "#3ec6e0", "#c46be0", "#e08a3e", "#4fbf8b"];
+const COLORS = ["#4274D9", "#293681", "#4FA3C4", "#3FAE9B", "#E08A3E", "#9A6BD6", "#EF6A6A", "#5BB57A"];
 
 /* Inline SVG icons (not emoji) so they render consistently across browsers/OSes */
 const ICON_CHAT = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
@@ -333,7 +333,7 @@ function renderProjectsFilter() {
       ? projects.filter(p => (p.category || "running") !== "archived").length
       : projects.filter(p => (p.category || "running") === opt.key).length;
     chip.innerHTML = (opt.dot ? `<span class="dot" style="background:var(--cat-${opt.dot})"></span>` : "") +
-      `${escapeHtml(opt.label)} (${count})`;
+      `${escapeHtml(opt.label)} <span class="count">${count}</span>`;
     chip.addEventListener("click", () => {
       projectsFilter = opt.key;
       renderProjects();
@@ -404,20 +404,30 @@ async function renderProjects() {
 
     const card = document.createElement("div");
     card.className = "project-card";
+    const deadlineHtml = project.deadline
+      ? `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>${formatDate(project.deadline)}`
+      : "—";
     card.innerHTML = `
-      <div class="meta-row">
-        <h3 style="margin:0">${escapeHtml(project.name)}</h3>
+      <div class="pc-head">
+        <h3>${escapeHtml(project.name)}</h3>
         <span class="category-badge ${category}">${escapeHtml(categoryLabels[category] || category)}</span>
       </div>
       <div class="desc">${escapeHtml(project.desc || "No description")}</div>
-      <div class="meta-row">
-        <span>${projTasks.length} task${projTasks.length === 1 ? "" : "s"} · ${pct}% done</span>
-        <span>${project.deadline ? "Due " + project.deadline : ""}</span>
+      <div class="pc-progress">
+        <div class="pc-progress-text"><span><b>${done}/${projTasks.length}</b> task${projTasks.length === 1 ? "" : "s"}</span><span>(${pct}% completed)</span></div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
       </div>
-      <div class="meta-row">
-        <div class="avatar-stack">${avatars || '<span style="color:var(--text-muted)">No teammates yet</span>'}</div>
-        ${categorySelectHtml}${folderSelectHtml}
+      <div class="pc-people">
+        <div class="pc-people-col">
+          <span class="pc-label">Assigned to:</span>
+          <div class="avatar-stack">${avatars || '<span class="pc-none">No teammates yet</span>'}</div>
+        </div>
+        <div class="pc-people-col">
+          <span class="pc-label">Deadline</span>
+          <span class="pc-deadline">${deadlineHtml}</span>
+        </div>
       </div>
+      <div class="pc-selects">${categorySelectHtml}${folderSelectHtml}</div>
       <div class="card-actions">${actionButtonsHtml}</div>
     `;
     attachProjectActions(card, project);
@@ -1667,7 +1677,13 @@ function buildGroupTable(group) {
   countEl.className = "group-count";
   countEl.textContent = groupTasks.length + (groupTasks.length === 1 ? " item" : " items");
 
-  bar.append(chevron, titleEl, countEl);
+  const groupDone = groupTasks.filter(t => t.status === "done").length;
+  const groupPct = groupTasks.length ? Math.round((groupDone / groupTasks.length) * 100) : 0;
+  const progressEl = document.createElement("span");
+  progressEl.className = "group-progress";
+  progressEl.innerHTML = `<span class="gp-bar"><i style="width:${groupPct}%"></i></span><span class="gp-text">${groupPct}% completed <b>${groupDone}/${groupTasks.length}</b></span>`;
+
+  bar.append(chevron, titleEl, countEl, progressEl);
 
   if (isAdmin()) {
     const copyBtn = document.createElement("button");
@@ -1825,7 +1841,7 @@ function buildListRow(task, group, project, groupTasks) {
 
   const statusCell = document.createElement("span");
   statusCell.className = "status-pill kl-col-status";
-  statusCell.style.background = statusDef.color;
+  statusCell.style.setProperty("--c", statusDef.color);
   statusCell.textContent = statusDef.label;
   row.appendChild(statusCell);
 
@@ -1918,7 +1934,7 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
 
   const statusCell = document.createElement("span");
   statusCell.className = "status-pill kl-col-status";
-  statusCell.style.background = statusDef.color;
+  statusCell.style.setProperty("--c", statusDef.color);
   statusCell.textContent = statusDef.label;
   row.appendChild(statusCell);
 
@@ -2927,7 +2943,7 @@ function renderTdSubitemsList(task, group, groupTasks) {
     row.className = "td-subitem-row";
     row.innerHTML = `
       <span class="td-subitem-title">${escapeHtml(sub.title)}</span>
-      <span class="status-pill td-subitem-status" style="background:${statusDef.color}">${escapeHtml(statusDef.label)}</span>
+      <span class="status-pill td-subitem-status" style="--c:${statusDef.color}">${escapeHtml(statusDef.label)}</span>
       ${isAdmin() ? `<button type="button" class="td-subitem-del" title="Delete subitem">&times;</button>` : ""}
     `;
     const canEditSubStatus = isAdmin() || (!!me && (sub.assigneeIds || []).includes(me.id));
