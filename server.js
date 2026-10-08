@@ -5,7 +5,7 @@ const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
-const { store, save, uid, recomputeProjectCategory, normalizeMembers, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
+const { store, save, uid, recomputeProjectCategory, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 8790;
@@ -818,19 +818,19 @@ app.get("/api/backup", requireAdmin, (req, res) => {
   const filename = `workflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.send(JSON.stringify(store, null, 2));
+  // Project data only: team logins (and their password hashes) live in
+  // members.json and are never part of a backup or touched by a restore.
+  const { members, ...projectData } = store;
+  res.send(JSON.stringify(projectData, null, 2));
 });
 
 app.post("/api/restore", requireAdmin, async (req, res) => {
   const incoming = req.body;
-  const requiredArrays = ["members", "projects", "groups", "tasks"];
+  const requiredArrays = ["projects", "groups", "tasks"];
   const isValid = incoming && typeof incoming === "object" &&
     requiredArrays.every(key => Array.isArray(incoming[key]));
   if (!isValid) {
     return res.status(400).json({ error: "That file doesn't look like a valid backup" });
-  }
-  if (!incoming.members.some(m => m.role === "admin")) {
-    return res.status(400).json({ error: "Backup must include at least one admin account" });
   }
 
   incoming.projects.forEach(p => {
@@ -855,8 +855,6 @@ app.post("/api/restore", requireAdmin, async (req, res) => {
     }
   });
 
-  normalizeMembers(incoming.members);
-  store.members = incoming.members;
   store.projects = incoming.projects;
   store.groups = incoming.groups;
   store.tasks = incoming.tasks;

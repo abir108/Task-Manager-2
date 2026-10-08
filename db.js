@@ -5,6 +5,7 @@ const crypto = require("crypto");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "store.json");
+const MEMBERS_FILE = path.join(DATA_DIR, "members.json");
 
 const DEFAULT_STATUSES = [
   { id: "not_started", label: "Not Started", color: "#c4c4c4" },
@@ -43,11 +44,10 @@ function emptyStore() {
   };
 }
 
-/* Login is email + password only. Applied on startup and after a restore, since
-   an older backup has no email/password on its Admin account. The original
-   Admin (legacy PIN only, or seeded with the old bootstrap email) gets the real
-   admin email and initial password once. If, after that, no admin could log in
-   at all, the first admin gets them so the system can never be locked out. */
+/* Login is email + password only. The original Admin (legacy PIN only, or
+   seeded with the old bootstrap email) gets the real admin email and initial
+   password once. If, after that, no admin could log in at all, the first admin
+   gets them so the system can never be locked out. */
 function normalizeMembers(members) {
   let changed = false;
   members.forEach(m => {
@@ -69,9 +69,39 @@ function normalizeMembers(members) {
   return changed;
 }
 
+/* Team logins live in their own file (members.json) so that restoring or
+   replacing the project data (store.json) never touches who can log in. In
+   memory they are still store.members. */
+function splitStore(s) {
+  const { members, ...data } = s;
+  return { data: JSON.stringify(data, null, 2), members: JSON.stringify(members, null, 2) };
+}
+
+let lastMembersJson = null;
+
+function persistSync(s) {
+  const parts = splitStore(s);
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(DATA_FILE, parts.data);
+  fs.writeFileSync(MEMBERS_FILE, parts.members);
+  lastMembersJson = parts.members;
+}
+
 function load() {
-  if (!fs.existsSync(DATA_FILE)) {
-    const store = emptyStore();
+  const hasStore = fs.existsSync(DATA_FILE);
+  const hasMembers = fs.existsSync(MEMBERS_FILE);
+  const store = hasStore ? JSON.parse(fs.readFileSync(DATA_FILE, "utf8")) : emptyStore();
+
+  // First start after upgrading: members.json doesn't exist yet, so the old
+  // combined store.json is the source. Afterwards members.json always wins.
+  let changed = !hasStore || !hasMembers;
+  if (hasMembers) {
+    const fromFile = JSON.parse(fs.readFileSync(MEMBERS_FILE, "utf8"));
+    store.members = Array.isArray(fromFile) ? fromFile : [];
+  } else if (!Array.isArray(store.members)) {
+    store.members = [];
+  }
+  if (store.members.length === 0) {
     store.members.push({
       id: uid(),
       name: "Admin",
@@ -80,16 +110,12 @@ function load() {
       role: "admin",
       createdAt: Date.now()
     });
-    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-    fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
-    console.log(`\nFirst run: created default admin login -> email "${ADMIN_EMAIL}", password "${ADMIN_PASSWORD}".`);
+    changed = true;
+    console.log(`\nNo team logins found: created default admin -> email "${ADMIN_EMAIL}", password "${ADMIN_PASSWORD}".`);
     console.log("Log in and change this password immediately from Edit Profile.\n");
-    return store;
   }
-  const raw = fs.readFileSync(DATA_FILE, "utf8");
-  const store = JSON.parse(raw);
+
   if (!store.groups) store.groups = [];
-  if (!store.members) store.members = [];
   if (!store.projects) store.projects = [];
   if (!store.tasks) store.tasks = [];
   if (!store.notes) store.notes = [];
@@ -99,7 +125,7 @@ function load() {
     if (!store.categoryLabels[key]) store.categoryLabels[key] = DEFAULT_CATEGORY_LABELS[key];
   });
 
-  let changed = normalizeMembers(store.members);
+  if (normalizeMembers(store.members)) changed = true;
   store.projects.forEach(p => {
     if (!p.category || !PROJECT_CATEGORIES.includes(p.category)) {
       p.category = "running";
@@ -142,9 +168,7 @@ function load() {
       changed = true;
     }
   });
-  if (changed) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
-  }
+  if (changed) persistSync(store);
   return store;
 }
 
@@ -152,11 +176,14 @@ let store = load();
 let writeChain = Promise.resolve();
 
 function save() {
-  writeChain = writeChain.then(() => new Promise((resolve, reject) => {
-    fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), (err) => {
-      if (err) reject(err); else resolve();
-    });
-  }));
+  writeChain = writeChain.then(async () => {
+    const parts = splitStore(store);
+    await fs.promises.writeFile(DATA_FILE, parts.data);
+    if (parts.members !== lastMembersJson) {
+      await fs.promises.writeFile(MEMBERS_FILE, parts.members);
+      lastMembersJson = parts.members;
+    }
+  });
   return writeChain;
 }
 
@@ -178,4 +205,4 @@ function recomputeProjectCategory(projectId) {
   }
 }
 
-module.exports = { store, save, uid, recomputeProjectCategory, normalizeMembers, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
+module.exports = { store, save, uid, recomputeProjectCategory, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };

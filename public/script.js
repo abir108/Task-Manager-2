@@ -1011,7 +1011,7 @@ document.getElementById("input-restore-file").addEventListener("change", async (
   statusEl.textContent = "";
   statusEl.className = "backup-status";
 
-  if (!confirm(`Restore from "${file.name}"? This replaces ALL current data (projects, tasks, and team logins) with what's in this backup. This can't be undone.`)) {
+  if (!confirm(`Restore from "${file.name}"? This replaces ALL current projects and tasks with what's in this backup. Team logins are not changed. This can't be undone.`)) {
     return;
   }
 
