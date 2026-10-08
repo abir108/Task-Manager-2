@@ -69,56 +69,26 @@ function normalizeMembers(members) {
   return changed;
 }
 
-/* Team logins live in their own file (members.json) so that restoring or
-   replacing the project data (store.json) never touches who can log in. In
-   memory they are still store.members. */
-function splitStore(s) {
-  const { members, ...data } = s;
-  return { data: JSON.stringify(data, null, 2), members: JSON.stringify(members, null, 2) };
-}
-
-let lastMembersJson = null;
-
 function persistSync(s) {
-  const parts = splitStore(s);
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(DATA_FILE, parts.data);
-  fs.writeFileSync(MEMBERS_FILE, parts.members);
-  lastMembersJson = parts.members;
+  fs.writeFileSync(DATA_FILE, JSON.stringify(s, null, 2));
 }
 
 function load() {
   const hasStore = fs.existsSync(DATA_FILE);
-  const hasMembers = fs.existsSync(MEMBERS_FILE);
   const store = hasStore ? JSON.parse(fs.readFileSync(DATA_FILE, "utf8")) : emptyStore();
+  let changed = !hasStore;
 
-  // First start after upgrading: members.json doesn't exist yet, so the old
-  // combined store.json is the source. Afterwards members.json always wins.
-  let changed = !hasStore || !hasMembers;
-  if (hasMembers) {
+  if (!Array.isArray(store.members)) store.members = [];
+  // An interim build kept the team in a separate members.json; fold it back
+  // into store.json (once) and set the old file aside.
+  if (store.members.length === 0 && fs.existsSync(MEMBERS_FILE)) {
     const fromFile = JSON.parse(fs.readFileSync(MEMBERS_FILE, "utf8"));
-    const fileMembers = Array.isArray(fromFile) ? fromFile : [];
-    const inline = Array.isArray(store.members) ? store.members : [];
-    // A members.json holding only the auto-created placeholder admin, next to a
-    // store.json that still carries a team, means an old store.json was copied
-    // in after the first start: the real team is the one in store.json.
-    const placeholder = fileMembers.length === 1 && fileMembers[0].role === "admin" && fileMembers[0].email === ADMIN_EMAIL
-      ? fileMembers[0] : null;
-    if (placeholder && inline.length > 0) {
-      const oldAdmin = inline.find(m => m.role === "admin" &&
-        (!m.email || m.email.toLowerCase() === OLD_BOOTSTRAP_EMAIL || m.email === ADMIN_EMAIL));
-      if (oldAdmin) {
-        oldAdmin.email = placeholder.email;
-        oldAdmin.passwordHash = placeholder.passwordHash;
-      }
-      store.members = inline;
+    if (Array.isArray(fromFile) && fromFile.length > 0) {
+      store.members = fromFile;
       changed = true;
-      console.log(`Adopted ${inline.length} team member(s) found in store.json into members.json.`);
-    } else {
-      store.members = fileMembers;
     }
-  } else if (!Array.isArray(store.members)) {
-    store.members = [];
+    fs.renameSync(MEMBERS_FILE, MEMBERS_FILE + ".old");
   }
   if (store.members.length === 0) {
     store.members.push({
@@ -195,14 +165,11 @@ let store = load();
 let writeChain = Promise.resolve();
 
 function save() {
-  writeChain = writeChain.then(async () => {
-    const parts = splitStore(store);
-    await fs.promises.writeFile(DATA_FILE, parts.data);
-    if (parts.members !== lastMembersJson) {
-      await fs.promises.writeFile(MEMBERS_FILE, parts.members);
-      lastMembersJson = parts.members;
-    }
-  });
+  writeChain = writeChain.then(() => new Promise((resolve, reject) => {
+    fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), (err) => {
+      if (err) reject(err); else resolve();
+    });
+  }));
   return writeChain;
 }
 
@@ -224,4 +191,4 @@ function recomputeProjectCategory(projectId) {
   }
 }
 
-module.exports = { store, save, uid, recomputeProjectCategory, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
+module.exports = { store, save, uid, recomputeProjectCategory, normalizeMembers, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
