@@ -2859,6 +2859,154 @@ body.theme-dark .brand .org-name { margin-top: 8px; }
   .brand { padding: 0; }
 }
 
+/* =====================================================================
+   Kanban board -- premium look. Each column carries its status colour in
+   --c; the tab header, tinted body and the card accent all derive from it.
+   ===================================================================== */
+.kanban-board {
+  gap: 18px;
+  padding: 20px 18px 22px;
+  background: linear-gradient(180deg, var(--bg-subtle) 0%, var(--card-bg) 100%);
+  scrollbar-width: thin;
+  scrollbar-color: var(--sky) transparent;
+}
+.kanban-board::-webkit-scrollbar { height: 10px; }
+.kanban-board::-webkit-scrollbar-track { background: transparent; }
+.kanban-board::-webkit-scrollbar-thumb { background: var(--sky); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+
+.kanban-column {
+  --c: var(--accent);
+  position: relative;
+  flex: 0 0 284px;
+  width: 284px;
+  gap: 10px;
+  padding: 14px 12px 12px;
+  border-radius: 18px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+}
+/* tab edge sticking out of the top of the column */
+.kanban-column::before {
+  content: "";
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  top: -1px;
+  height: 4px;
+  border-radius: 0 0 6px 6px;
+  background: var(--c);
+}
+
+/* tab-style header */
+.kanban-col-header {
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(41, 54, 129, 0.06);
+}
+.kanban-col-dot { background: var(--c); width: 10px; height: 10px; box-shadow: 0 0 0 3px rgba(149, 204, 221, 0.35); }
+.kanban-col-label { color: var(--text); font-size: 12px; letter-spacing: .07em; }
+.kanban-col-count {
+  background: var(--accent-light);
+  color: var(--accent);
+  min-width: 22px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+@supports (color: color-mix(in srgb, red 10%, white)) {
+  .kanban-column {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--c) 15%, var(--card-bg)) 0%, color-mix(in srgb, var(--c) 4%, var(--card-bg)) 70%);
+    border-color: color-mix(in srgb, var(--c) 24%, var(--border));
+    box-shadow: 0 10px 26px color-mix(in srgb, var(--c) 11%, transparent);
+  }
+  .kanban-col-header {
+    border-color: color-mix(in srgb, var(--c) 30%, var(--border));
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--c) 16%, transparent);
+  }
+  .kanban-col-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 28%, transparent); }
+  .kanban-col-label { color: color-mix(in srgb, var(--c) 52%, var(--text)); }
+  .kanban-col-count { background: color-mix(in srgb, var(--c) 18%, var(--card-bg)); color: color-mix(in srgb, var(--c) 50%, var(--text)); }
+  body.theme-dark .kanban-column {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--c) 22%, var(--card-bg)) 0%, color-mix(in srgb, var(--c) 7%, var(--card-bg)) 70%);
+  }
+  body.theme-dark .kanban-col-label { color: color-mix(in srgb, var(--c) 62%, #ffffff); }
+  body.theme-dark .kanban-col-count { color: color-mix(in srgb, var(--c) 55%, #ffffff); }
+}
+
+.kanban-card-list { gap: 10px; }
+
+/* cards */
+.kanban-card {
+  border-radius: 14px;
+  padding: 12px 12px 10px 16px;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(41, 54, 129, 0.06), 0 6px 16px rgba(41, 54, 129, 0.06);
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+.kanban-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: var(--c, var(--accent));
+}
+.kanban-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--sky);
+  box-shadow: 0 12px 26px rgba(41, 54, 129, 0.16);
+}
+.kanban-card-title { font-size: 13.5px; line-height: 1.4; }
+.kanban-card-meta {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--border);
+  gap: 12px;
+}
+.kanban-card-wrap.dragging .kanban-card {
+  transform: rotate(2deg) scale(1.02);
+  box-shadow: 0 20px 40px rgba(41, 54, 129, 0.3);
+  border-color: var(--accent);
+}
+
+/* nested subtasks */
+.kanban-subtask-list { border-left: 2px solid var(--sky); gap: 8px; }
+.kanban-subtask-card {
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(41, 54, 129, 0.05);
+  transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+}
+.kanban-subtask-card:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(41, 54, 129, 0.12); border-color: var(--sky); }
+.kanban-subtask-toggle { color: var(--text-muted); font-weight: 700; }
+
+/* add task / add status */
+.kanban-add-task {
+  border-radius: 12px;
+  border: 1.5px dashed var(--border);
+  padding: 9px 12px;
+  background: transparent;
+  transition: border-color .14s, color .14s, background .14s;
+}
+.kanban-add-task:not(.open):hover { background: var(--card-bg); border-color: var(--accent); color: var(--accent); }
+.kanban-add-column {
+  flex: 0 0 240px;
+  width: 240px;
+  border-radius: 18px;
+  padding: 16px 14px;
+  border: 1.5px dashed var(--sky);
+  background: transparent;
+}
+.kanban-add-column:not(.open):hover { background: var(--accent-light); border-color: var(--accent); }
+.kanban-quick-add-card { border-radius: 14px; box-shadow: 0 8px 22px rgba(41, 54, 129, 0.14); }
+
+/* overall progress strip */
+.kanban-summary-bar { height: 10px; background: var(--hover); }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .app { flex-direction: column; }

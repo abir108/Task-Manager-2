@@ -2154,20 +2154,17 @@ function buildKanbanColumn(status, group, topTasks, groupTasks, project) {
   const col = document.createElement("div");
   col.className = "kanban-column";
   col.dataset.statusId = status.id;
-  col.style.background = hexToRgba(status.color, 0.08);
+  col.style.setProperty("--c", status.color);
 
   const header = document.createElement("div");
   header.className = "kanban-col-header";
-  header.style.background = hexToRgba(status.color, 0.24);
 
   const dot = document.createElement("span");
   dot.className = "kanban-col-dot";
-  dot.style.background = status.color;
 
   const label = document.createElement("span");
   label.className = "kanban-col-label";
   label.textContent = status.label;
-  label.style.color = status.color;
 
   const count = document.createElement("span");
   count.className = "kanban-col-count";
