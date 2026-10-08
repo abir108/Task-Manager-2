@@ -676,6 +676,16 @@ function renderProfileEditPage() {
 document.getElementById("btn-goto-edit-profile").addEventListener("click", () => showView("profile-edit"));
 document.getElementById("btn-back-profile").addEventListener("click", () => showView("profile"));
 
+let profileKpiFilter = null;
+let profileKpiTasks = [];
+let profileKpiProjects = [];
+
+function renderProfileKpi() {
+  const range = profileKpiFilter.getRange();
+  document.getElementById("profile-kpi").innerHTML =
+    kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label());
+}
+
 async function renderProfilePage() {
   const allProjects = await api("GET", "/api/projects");
   const allTasksRaw = await api("GET", "/api/tasks");
@@ -694,7 +704,12 @@ async function renderProfilePage() {
   document.getElementById("profile-stat-assigned").textContent = assigned.length;
   document.getElementById("profile-stat-projects").textContent = projectIds.size;
   document.getElementById("profile-stat-rate").textContent = rate + "%";
-  document.getElementById("profile-kpi").innerHTML = kpiHtml(assigned, activeProjects);
+  profileKpiTasks = assigned;
+  profileKpiProjects = activeProjects;
+  if (!profileKpiFilter) {
+    profileKpiFilter = mountPeriodFilter(document.getElementById("profile-period-filter"), renderProfileKpi);
+  }
+  renderProfileKpi();
 
   const overdueRows = assigned
     .filter(t => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) < 0)
@@ -1786,17 +1801,27 @@ function buildListRow(task, group, project, groupTasks) {
   }
   row.appendChild(titleCell);
 
-  const notesCell = document.createElement("button");
-  notesCell.type = "button";
-  notesCell.className = "kl-col-notes kl-notes-btn" + (noteCount > 0 ? " has-notes" : "");
-  notesCell.title = noteCount > 0 ? `${noteCount} update${noteCount === 1 ? "" : "s"}` : "Add an update";
-  notesCell.innerHTML = ICON_CHAT + (noteCount > 0 ? ` <span>${noteCount}</span>` : "");
-  notesCell.addEventListener("mousedown", e => e.stopPropagation());
-  notesCell.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openNotesModal(task);
-  });
-  row.appendChild(notesCell);
+  const toolsCell = document.createElement("span");
+  toolsCell.className = "kl-col-notes";
+  toolsCell.appendChild(buildListNotesButton(task, noteCount));
+  if (isAdmin()) {
+    const addSubBtn = document.createElement("button");
+    addSubBtn.type = "button";
+    addSubBtn.className = "kl-add-sub";
+    addSubBtn.innerHTML = "+";
+    addSubBtn.title = "Add subtask";
+    bindQuietAction(addSubBtn, () => {
+      expandedSubtaskCards.add(task.id);
+      pendingSubtaskAddFor = task.id;
+      renderBoard();
+      requestAnimationFrame(() => {
+        const input = document.querySelector(`.kl-sub-add-row[data-parent-id="${task.id}"] input`);
+        if (input) input.focus();
+      });
+    });
+    toolsCell.appendChild(addSubBtn);
+  }
+  row.appendChild(toolsCell);
 
   const statusCell = document.createElement("span");
   statusCell.className = "status-pill kl-col-status";
@@ -1821,22 +1846,6 @@ function buildListRow(task, group, project, groupTasks) {
   if (isAdmin()) {
     const actions = document.createElement("span");
     actions.className = "kl-col-actions";
-
-    const addSubBtn = document.createElement("button");
-    addSubBtn.type = "button";
-    addSubBtn.className = "kl-add-sub";
-    addSubBtn.innerHTML = "+";
-    addSubBtn.title = "Add subtask";
-    bindQuietAction(addSubBtn, () => {
-      expandedSubtaskCards.add(task.id);
-      pendingSubtaskAddFor = task.id;
-      renderBoard();
-      requestAnimationFrame(() => {
-        const input = document.querySelector(`.kl-sub-add-row[data-parent-id="${task.id}"] input`);
-        if (input) input.focus();
-      });
-    });
-    actions.appendChild(addSubBtn);
 
     const delBtn = document.createElement("button");
     delBtn.type = "button";
@@ -1871,6 +1880,20 @@ function buildListRow(task, group, project, groupTasks) {
   return row;
 }
 
+function buildListNotesButton(task, noteCount) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "kl-notes-btn" + (noteCount > 0 ? " has-notes" : "");
+  btn.title = noteCount > 0 ? `${noteCount} update${noteCount === 1 ? "" : "s"}` : "Add an update";
+  btn.innerHTML = ICON_CHAT + (noteCount > 0 ? ` <span>${noteCount}</span>` : "");
+  btn.addEventListener("mousedown", e => e.stopPropagation());
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openNotesModal(task);
+  });
+  return btn;
+}
+
 function buildSubListRow(sub, parentTask, group, project, groupTasks) {
   const assigneeIds = sub.assigneeIds || [];
   const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
@@ -1888,17 +1911,10 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
   titleCell.textContent = sub.title;
   row.appendChild(titleCell);
 
-  const notesCell = document.createElement("button");
-  notesCell.type = "button";
-  notesCell.className = "kl-col-notes kl-notes-btn" + (noteCount > 0 ? " has-notes" : "");
-  notesCell.title = noteCount > 0 ? `${noteCount} update${noteCount === 1 ? "" : "s"}` : "Add an update";
-  notesCell.innerHTML = ICON_CHAT + (noteCount > 0 ? ` <span>${noteCount}</span>` : "");
-  notesCell.addEventListener("mousedown", e => e.stopPropagation());
-  notesCell.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openNotesModal(sub);
-  });
-  row.appendChild(notesCell);
+  const toolsCell = document.createElement("span");
+  toolsCell.className = "kl-col-notes";
+  toolsCell.appendChild(buildListNotesButton(sub, noteCount));
+  row.appendChild(toolsCell);
 
   const statusCell = document.createElement("span");
   statusCell.className = "status-pill kl-col-status";
@@ -3398,31 +3414,6 @@ function projectListHtml(rows) {
   }).join("") + `</div>`;
 }
 
-function employeeProjectBreakdown(memberId) {
-  const byProject = new Map();
-  reportAllTasksCache.forEach(t => {
-    if (!(t.assigneeIds || []).includes(memberId)) return;
-    if (!byProject.has(t.projectId)) byProject.set(t.projectId, []);
-    byProject.get(t.projectId).push(t);
-  });
-  return Array.from(byProject.entries()).map(([projectId, tks]) => {
-    const project = reportAllProjectsCache.find(p => p.id === projectId);
-    const done = tks.filter(t => t.status === "done").length;
-    return { project, tasks: tks, done, total: tks.length, pct: tks.length ? Math.round((done / tks.length) * 100) : 0 };
-  }).sort((a, b) => b.total - a.total);
-}
-
-function sortAssignedTasks(list) {
-  return list.slice().sort((a, b) => {
-    const ta = a.task, tb = b.task;
-    if ((ta.status === "done") !== (tb.status === "done")) return ta.status === "done" ? 1 : -1;
-    if (!ta.dueDate && !tb.dueDate) return 0;
-    if (!ta.dueDate) return 1;
-    if (!tb.dueDate) return -1;
-    return new Date(ta.dueDate) - new Date(tb.dueDate);
-  });
-}
-
 /* ---------- Member KPI (task-based) ----------
    Every task a member is assigned to counts as 100% once it is marked Done.
    A done task is "on time" if it was completed by the end of its due date,
@@ -3457,9 +3448,11 @@ function computeKpi(tasks) {
   return k;
 }
 
-function kpiHtml(memberTasks, projects) {
+function kpiHtml(memberTasks, projects, periodLabel) {
   if (!memberTasks.length) {
-    return `<p class="empty-hint">No tasks assigned yet. KPI appears once tasks are assigned.</p>`;
+    return periodLabel && periodLabel !== "All time"
+      ? `<p class="empty-hint">No tasks fall in ${escapeHtml(periodLabel)}.</p>`
+      : `<p class="empty-hint">No tasks assigned yet. KPI appears once tasks are assigned.</p>`;
   }
   const k = computeKpi(memberTasks);
   const stats = `
@@ -3517,121 +3510,277 @@ function kpiHtml(memberTasks, projects) {
   return `${stats}<h3 class="kpi-sub-head">By project</h3>${projectsHtml}`;
 }
 
-function renderReportKpi() {
-  const memberId = document.getElementById("report-kpi-member").value;
-  const body = document.getElementById("report-kpi-body");
-  if (!memberId) {
-    body.innerHTML = `<p class="empty-hint">Pick a member to see their KPI and how much of each project they finished.</p>`;
-    return;
-  }
-  const tasks = reportAllTasksCache.filter(t => (t.assigneeIds || []).includes(memberId));
-  body.innerHTML = kpiHtml(tasks, reportAllProjectsCache);
+/* ---------- Date-range filter (Report page + My Profile) ---------- */
+const PERIOD_OPTIONS = [
+  ["all", "All time"],
+  ["thisMonth", "This month"],
+  ["lastMonth", "Last month"],
+  ["thisYear", "This year"],
+  ["lastYear", "Last year"],
+  ["month", "Pick a month…"],
+  ["year", "Pick a year…"],
+  ["custom", "Custom range…"]
+];
+
+function mountPeriodFilter(container, onChange) {
+  container.classList.add("period-filter");
+  container.innerHTML = `
+    <select class="pf-select">${PERIOD_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>
+    <input type="month" class="pf-month u-hidden">
+    <input type="number" class="pf-year u-hidden" min="2000" max="2100" placeholder="Year">
+    <span class="pf-custom u-hidden"><input type="date" class="pf-from"><span>to</span><input type="date" class="pf-to"></span>`;
+  const q = sel => container.querySelector(sel);
+  const typeSel = q(".pf-select"), monthIn = q(".pf-month"), yearIn = q(".pf-year");
+  const customWrap = q(".pf-custom"), fromIn = q(".pf-from"), toIn = q(".pf-to");
+  const today = new Date();
+  monthIn.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  yearIn.value = today.getFullYear();
+
+  const monthRange = (y, m) => ({
+    start: new Date(y, m, 1).getTime(),
+    end: new Date(y, m + 1, 1).getTime(),
+    label: new Date(y, m, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+  });
+  const yearRange = y => ({ start: new Date(y, 0, 1).getTime(), end: new Date(y + 1, 0, 1).getTime(), label: String(y) });
+
+  const syncVisibility = () => {
+    monthIn.classList.toggle("u-hidden", typeSel.value !== "month");
+    yearIn.classList.toggle("u-hidden", typeSel.value !== "year");
+    customWrap.classList.toggle("u-hidden", typeSel.value !== "custom");
+  };
+
+  const controller = {
+    getRange() {
+      const now = new Date();
+      const y = now.getFullYear(), m = now.getMonth();
+      switch (typeSel.value) {
+        case "thisMonth": return monthRange(y, m);
+        case "lastMonth": return monthRange(y, m - 1);
+        case "thisYear": return yearRange(y);
+        case "lastYear": return yearRange(y - 1);
+        case "month": {
+          const [yy, mm] = monthIn.value.split("-").map(Number);
+          return yy ? monthRange(yy, mm - 1) : null;
+        }
+        case "year": {
+          const yy = Number(yearIn.value);
+          return yy ? yearRange(yy) : null;
+        }
+        case "custom": {
+          if (!fromIn.value && !toIn.value) return null;
+          return {
+            start: fromIn.value ? new Date(fromIn.value + "T00:00:00").getTime() : -Infinity,
+            end: toIn.value ? new Date(toIn.value + "T00:00:00").getTime() + 86400000 : Infinity,
+            label: `${fromIn.value || "…"} to ${toIn.value || "…"}`
+          };
+        }
+        default: return null;
+      }
+    },
+    label() {
+      const r = this.getRange();
+      return r ? r.label : "All time";
+    }
+  };
+
+  [typeSel, monthIn, yearIn, fromIn, toIn].forEach(el => el.addEventListener("change", () => {
+    syncVisibility();
+    onChange();
+  }));
+  syncVisibility();
+  return controller;
 }
 
-function openEmployeeDetail(row) {
-  const breakdown = employeeProjectBreakdown(row.member.id);
-  const allAssignedTasks = reportAllTasksCache
-    .filter(t => (t.assigneeIds || []).includes(row.member.id))
-    .map(task => ({ task, project: reportAllProjectsCache.find(p => p.id === task.projectId) }));
+/* A task falls in a period by its due date; with no due date, by the day it
+   was finished, or failing that the day it was created. */
+function taskPeriodTs(t) {
+  if (t.dueDate) return new Date(t.dueDate + "T12:00:00").getTime();
+  if (t.status === "done" && t.completedAt) return t.completedAt;
+  return t.createdAt || 0;
+}
 
-  const summaryHtml = `
-    <div class="report-detail-summary">
-      <div><span class="rds-num">${row.assignedCount}</span><span class="rds-lbl">Tasks assigned</span></div>
-      <div><span class="rds-num">${row.projectCount}</span><span class="rds-lbl">Projects</span></div>
-      <div><span class="rds-num">${row.rate}%</span><span class="rds-lbl">Completion rate</span></div>
-      <div><span class="rds-num">${row.weekCount}/${row.monthCount}/${row.yearCount}</span><span class="rds-lbl">Done Wk/Mo/Yr</span></div>
-    </div>
-  `;
+function tasksInPeriod(tasks, range) {
+  return range ? tasks.filter(t => { const ts = taskPeriodTs(t); return ts >= range.start && ts < range.end; }) : tasks;
+}
 
-  const projectsPanelHtml = breakdown.length ? `<div class="report-detail-list">` + breakdown.map(b => `
-      <div class="report-detail-row" data-project="${b.project ? b.project.id : ""}">
-        <div class="rdr-main">
-          <span class="rdr-title">${b.project ? escapeHtml(b.project.name) : "Unknown project"}</span>
-          <span class="rdr-sub">${b.done}/${b.total} tasks done</span>
-        </div>
-        <div class="report-progress" style="min-width:110px">
-          <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${b.pct}%"></div></div>
-          <span class="report-progress-txt">${b.pct}%</span>
-        </div>
-      </div>
-    `).join("") + `</div>` : `<p class="empty-hint">Not assigned to any project.</p>`;
+/* ---------- Report: project-based tab ---------- */
+let reportPeriodFilter = null;
 
-  const projectOptions = breakdown
-    .filter(b => b.project)
-    .map(b => `<option value="${b.project.id}">${escapeHtml(b.project.name)}</option>`)
-    .join("");
+function setReportTab(tab) {
+  document.querySelectorAll("[data-report-tab]").forEach(b => b.classList.toggle("active", b.dataset.reportTab === tab));
+  document.getElementById("report-tab-projects").classList.toggle("u-hidden", tab !== "projects");
+  document.getElementById("report-tab-team").classList.toggle("u-hidden", tab !== "team");
+}
 
-  const tasksPanelHtml = `
-    <div class="report-detail-filters">
-      <select id="emp-detail-project-filter">
-        <option value="">All projects</option>
-        ${projectOptions}
-      </select>
-      <select id="emp-detail-due-filter">
-        <option value="">All due dates</option>
-        <option value="overdue">Overdue</option>
-        <option value="week">Due within 7 days</option>
-        <option value="has">Has due date</option>
-        <option value="none">No due date</option>
-      </select>
-    </div>
-    <div id="emp-detail-task-list"></div>
-  `;
+function relativeDays(days) {
+  if (days === null) return "";
+  if (days === 0) return "today";
+  return days < 0 ? `${-days}d ago` : `in ${days}d`;
+}
 
-  const bodyHtml = `
-    ${summaryHtml}
-    <div class="report-detail-tabs view-toggle">
-      <button type="button" class="view-toggle-btn active" data-tab="projects">Projects (${row.projectCount})</button>
-      <button type="button" class="view-toggle-btn" data-tab="tasks">Tasks (${row.assignedCount})</button>
-    </div>
-    <div id="emp-detail-projects-panel">${projectsPanelHtml}</div>
-    <div id="emp-detail-tasks-panel" class="hidden">${tasksPanelHtml}</div>
-  `;
+const PROJECT_STATUS_CHIP = { late: "overdue", risk: "late", ok: "ontime", done: "ontime", doneLate: "late" };
 
-  openReportDetail(
-    row.member.name,
-    `${row.assignedCount} task${row.assignedCount === 1 ? "" : "s"} across ${row.projectCount} project${row.projectCount === 1 ? "" : "s"}`,
-    bodyHtml
-  );
+function projectReportRows() {
+  const range = reportPeriodFilter ? reportPeriodFilter.getRange() : null;
+  const scope = document.getElementById("report-project-scope").value;
+  const rank = { late: 0, risk: 1, ok: 2, doneLate: 3, done: 4 };
 
-  const projectsPanel = document.getElementById("emp-detail-projects-panel");
-  const tasksPanel = document.getElementById("emp-detail-tasks-panel");
-  document.querySelectorAll(".report-detail-tabs [data-tab]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".report-detail-tabs [data-tab]").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      const showProjects = btn.dataset.tab === "projects";
-      projectsPanel.classList.toggle("hidden", !showProjects);
-      tasksPanel.classList.toggle("hidden", showProjects);
-    });
+  const rows = reportAllProjectsCache.map(project => {
+    // With a period selected, every number below counts only the tasks that fall in it.
+    const tks = tasksInPeriod(reportAllTasksCache.filter(t => t.projectId === project.id), range);
+    const doneTasks = tks.filter(t => t.status === "done");
+    const lateDone = doneTasks.filter(t => kpiTaskOutcome(t).kind === "late").length;
+    const open = tks.filter(t => t.status !== "done");
+    const overdueTasks = open.filter(t => t.dueDate && daysUntil(t.dueDate) < 0).length;
+    const openDates = open.map(t => t.dueDate).filter(Boolean).sort();
+    const workEnds = openDates.length ? openDates[openDates.length - 1] : null;
+    const isDone = (!range && project.category === "completed") || (tks.length > 0 && doneTasks.length === tks.length);
+    const deadlineDays = project.deadline ? daysUntil(project.deadline) : null;
+    const pct = tks.length ? Math.round((doneTasks.length / tks.length) * 100) : 0;
+
+    let status, label;
+    if (isDone) {
+      const finishedAt = Math.max(0, ...doneTasks.map(t => t.completedAt || 0));
+      const deadlineEnd = project.deadline ? new Date(project.deadline + "T23:59:59").getTime() : NaN;
+      if (!isNaN(deadlineEnd) && finishedAt > deadlineEnd) {
+        status = "doneLate";
+        label = `Finished ${Math.ceil((finishedAt - deadlineEnd) / 86400000)}d late`;
+      } else {
+        status = "done";
+        label = project.deadline ? "Finished on time" : "Completed";
+      }
+    } else if (deadlineDays !== null && deadlineDays < 0) {
+      status = "late";
+      label = `Late ${-deadlineDays}d`;
+    } else if (overdueTasks > 0) {
+      status = "risk";
+      label = `${overdueTasks} task${overdueTasks === 1 ? "" : "s"} overdue`;
+    } else if (project.deadline && workEnds && workEnds > project.deadline) {
+      status = "risk";
+      label = "Tasks run past deadline";
+    } else {
+      status = "ok";
+      label = "On track";
+    }
+
+    const deadlineTs = project.deadline ? new Date(project.deadline + "T12:00:00").getTime() : null;
+    const inPeriod = !range || tks.length > 0 || (deadlineTs !== null && deadlineTs >= range.start && deadlineTs < range.end);
+    return {
+      project, isDone, status, label, pct, overdueTasks, workEnds, deadlineDays, inPeriod, lateDone,
+      taskCount: tks.length, doneCount: doneTasks.length
+    };
   });
 
-  function applyEmployeeTaskFilters() {
-    const projFilter = document.getElementById("emp-detail-project-filter").value;
-    const dueFilter = document.getElementById("emp-detail-due-filter").value;
-    let filtered = allAssignedTasks;
-    if (projFilter) filtered = filtered.filter(({ task }) => task.projectId === projFilter);
-    if (dueFilter === "overdue") {
-      filtered = filtered.filter(({ task }) => task.status !== "done" && task.dueDate && daysUntil(task.dueDate) < 0);
-    } else if (dueFilter === "week") {
-      filtered = filtered.filter(({ task }) => {
-        if (task.status === "done" || !task.dueDate) return false;
-        const d = daysUntil(task.dueDate);
-        return d !== null && d >= 0 && d <= 7;
-      });
-    } else if (dueFilter === "has") {
-      filtered = filtered.filter(({ task }) => !!task.dueDate);
-    } else if (dueFilter === "none") {
-      filtered = filtered.filter(({ task }) => !task.dueDate);
-    }
-    const container = document.getElementById("emp-detail-task-list");
-    container.innerHTML = taskListHtml(sortAssignedTasks(filtered));
-    attachDetailRowNav(container, "modal-report-detail");
+  return rows
+    .filter(r => (scope === "all" || (scope === "completed") === r.isDone))
+    .filter(r => r.inPeriod)
+    .sort((a, b) => {
+      if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
+      const av = a.project.deadline ? new Date(a.project.deadline).getTime() : Infinity;
+      const bv = b.project.deadline ? new Date(b.project.deadline).getTime() : Infinity;
+      return av - bv;
+    });
+}
+
+function renderReportProjects() {
+  reportProjectRows = projectReportRows();
+  const body = document.getElementById("report-project-body");
+  const empty = document.getElementById("report-project-empty");
+  const summary = document.getElementById("report-project-summary");
+  const label = reportPeriodFilter ? reportPeriodFilter.label() : "All time";
+
+  const count = st => reportProjectRows.filter(r => r.status === st).length;
+  const parts = [`${reportProjectRows.length} project${reportProjectRows.length === 1 ? "" : "s"}`];
+  if (count("ok")) parts.push(`${count("ok")} on track`);
+  if (count("risk")) parts.push(`${count("risk")} at risk`);
+  if (count("late")) parts.push(`${count("late")} late`);
+  const finished = count("done") + count("doneLate");
+  if (finished) parts.push(`${finished} finished${count("doneLate") ? ` (${count("doneLate")} late)` : ""}`);
+  summary.textContent = parts.join(" · ") + (label === "All time" ? "" : ` — period: ${label}. Shows projects with tasks due in the period (or a deadline in it); progress counts only those tasks.`);
+
+  body.innerHTML = "";
+  empty.style.display = reportProjectRows.length ? "none" : "block";
+  reportProjectRows.forEach(r => {
+    const tr = document.createElement("tr");
+    const deadlineSub = r.isDone || r.deadlineDays === null ? "" : relativeDays(r.deadlineDays);
+    const endsDays = r.workEnds ? daysUntil(r.workEnds) : null;
+    tr.innerHTML = `
+      <td><span class="pname">${escapeHtml(r.project.name)}</span></td>
+      <td>${r.project.deadline ? formatDate(r.project.deadline) : "—"}${deadlineSub ? `<span class="cell-sub">${deadlineSub}</span>` : ""}</td>
+      <td>${r.workEnds ? formatDate(r.workEnds) + `<span class="cell-sub">${relativeDays(endsDays)}</span>` : (r.isDone ? "—" : '<span class="cell-sub">No task dates</span>')}</td>
+      <td>
+        <div class="report-progress">
+          <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${r.pct}%"></div></div>
+          <span class="report-progress-txt">${r.doneCount}/${r.taskCount} · ${r.pct}%</span>
+        </div>
+        ${r.lateDone ? `<span class="cell-sub">${r.lateDone} finished late</span>` : ""}
+      </td>
+      <td><span class="kpi-chip kpi-${PROJECT_STATUS_CHIP[r.status]}">${escapeHtml(r.label)}</span></td>
+    `;
+    tr.addEventListener("click", () => openBoard(r.project.id));
+    body.appendChild(tr);
+  });
+}
+
+/* ---------- Report: team member KPI tab ---------- */
+function reportMemberTasks(memberId) {
+  const range = reportPeriodFilter ? reportPeriodFilter.getRange() : null;
+  return tasksInPeriod(reportAllTasksCache.filter(t => (t.assigneeIds || []).includes(memberId)), range);
+}
+
+function renderReportTeam() {
+  const select = document.getElementById("report-kpi-member");
+  const memberId = select.value;
+  const label = reportPeriodFilter ? reportPeriodFilter.label() : "All time";
+  document.getElementById("report-kpi-note").textContent =
+    `Period: ${label}. A task is counted in the period of its due date (or the day it was finished or created, if it has no due date).`;
+
+  reportEmployeeRows = reportMembersCache.map(member => {
+    const tasks = reportMemberTasks(member.id);
+    return { member, k: computeKpi(tasks), projectCount: new Set(tasks.map(t => t.projectId)).size };
+  }).sort((a, b) => b.k.assigned - a.k.assigned);
+
+  const body = document.getElementById("report-kpi-body");
+  if (memberId) {
+    const member = reportMembersCache.find(m => m.id === memberId);
+    body.innerHTML = `
+      <div class="report-person kpi-member-head">${member ? avatarHtml(member) : ""}<span>${member ? escapeHtml(member.name) : ""}</span></div>
+      ${kpiHtml(reportMemberTasks(memberId), reportAllProjectsCache, label)}`;
+    return;
   }
 
-  document.getElementById("emp-detail-project-filter").addEventListener("change", applyEmployeeTaskFilters);
-  document.getElementById("emp-detail-due-filter").addEventListener("change", applyEmployeeTaskFilters);
-  applyEmployeeTaskFilters();
+  if (!reportEmployeeRows.length) {
+    body.innerHTML = `<p class="empty-hint">No team members yet.</p>`;
+    return;
+  }
+  body.innerHTML = `
+    <div class="report-table-wrap">
+      <table class="report-table kpi-compare-table">
+        <thead>
+          <tr><th>Member</th><th>Assigned</th><th>Done</th><th>On time</th><th>Late</th><th>Overdue</th><th>Completion</th><th>On-time rate</th></tr>
+        </thead>
+        <tbody>
+          ${reportEmployeeRows.map(r => `
+            <tr data-member="${r.member.id}" class="${r.k.assigned ? "" : "kpi-row-empty"}">
+              <td><div class="report-person">${avatarHtml(r.member)}<span>${escapeHtml(r.member.name)}</span></div></td>
+              <td>${r.k.assigned}</td>
+              <td>${r.k.done}</td>
+              <td class="kpi-good-text">${r.k.ontime}</td>
+              <td class="kpi-warn-text">${r.k.late}</td>
+              <td class="kpi-bad-text">${r.k.overdue}</td>
+              <td>${r.k.assigned ? r.k.completion + "%" : "—"}</td>
+              <td>${r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%"}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+    <p class="kpi-note">Click a member to see their KPI project by project.</p>`;
+  body.querySelectorAll("tr[data-member]").forEach(tr => {
+    tr.addEventListener("click", () => {
+      select.value = tr.dataset.member;
+      renderReportTeam();
+    });
+  });
 }
 
 async function renderReportPage() {
@@ -3646,18 +3795,6 @@ async function renderReportPage() {
   reportAllTasksCache = allTasks;
   reportAllProjectsCache = activeProjects;
   reportMembersCache = allMembers;
-
-  const kpiSelect = document.getElementById("report-kpi-member");
-  const prevKpiMember = kpiSelect.value;
-  kpiSelect.innerHTML = `<option value="">Select a member…</option>` +
-    allMembers.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
-  if (allMembers.some(m => m.id === prevKpiMember)) kpiSelect.value = prevKpiMember;
-  renderReportKpi();
-
-  const now = new Date();
-  const weekAgo = new Date(now.getTime() - 7 * 86400000);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const yearStart = new Date(now.getFullYear(), 0, 1);
 
   /* ---- Alert stats ---- */
   const overdueTasks = allTasks.filter(t => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) < 0).length;
@@ -3694,104 +3831,27 @@ async function renderReportPage() {
   document.getElementById("report-due-week").textContent = dueThisWeek;
   document.getElementById("report-completion-rate").textContent = overallRate + "%";
 
-  /* ---- Employee section ---- */
-  reportEmployeeRows = allMembers.map(member => {
-    const assigned = allTasks.filter(t => (t.assigneeIds || []).includes(member.id));
-    const projectIds = new Set(assigned.map(t => t.projectId));
-    const done = assigned.filter(t => t.status === "done");
-    const weekCount = done.filter(t => t.completedAt && new Date(t.completedAt) >= weekAgo).length;
-    const monthCount = done.filter(t => t.completedAt && new Date(t.completedAt) >= monthStart).length;
-    const yearCount = done.filter(t => t.completedAt && new Date(t.completedAt) >= yearStart).length;
-    const rate = assigned.length ? Math.round((done.length / assigned.length) * 100) : 0;
-    const upcoming = assigned
-      .filter(t => t.status !== "done" && t.dueDate)
-      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
-    const nextTask = upcoming[0] || null;
-    return {
-      member,
-      assignedCount: assigned.length,
-      projectCount: projectIds.size,
-      weekCount, monthCount, yearCount,
-      completedCount: done.length,
-      rate,
-      nextDeadline: nextTask ? nextTask.dueDate : null,
-      nextTaskTitle: nextTask ? nextTask.title : null
-    };
-  }).sort((a, b) => b.assignedCount - a.assignedCount);
-
-  const empBody = document.getElementById("report-employee-body");
-  const empEmpty = document.getElementById("report-employee-empty");
-  empBody.innerHTML = "";
-  if (reportEmployeeRows.length === 0) {
-    empEmpty.style.display = "block";
-  } else {
-    empEmpty.style.display = "none";
-    reportEmployeeRows.forEach(r => {
-      const urgency = getUrgency(r.nextDeadline, false);
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><div class="report-person">${avatarHtml(r.member)}<span>${escapeHtml(r.member.name)}</span></div></td>
-        <td>${r.assignedCount}</td>
-        <td>${r.projectCount}</td>
-        <td>
-          <div class="report-triple">
-            <div><span class="rt-num">${r.weekCount}</span><span class="rt-lbl">Wk</span></div>
-            <div><span class="rt-num">${r.monthCount}</span><span class="rt-lbl">Mo</span></div>
-            <div><span class="rt-num">${r.yearCount}</span><span class="rt-lbl">Yr</span></div>
-          </div>
-        </td>
-        <td>${r.rate}%</td>
-        <td>${r.nextDeadline
-          ? `<span class="urgency-badge urgency-${urgency.cls}" title="${escapeHtml(r.nextTaskTitle || "")}">${formatDate(r.nextDeadline)} · ${urgency.label}</span>`
-          : `<span class="urgency-badge urgency-none">No upcoming</span>`}</td>
-      `;
-      tr.addEventListener("click", () => openEmployeeDetail(r));
-      empBody.appendChild(tr);
+  if (!reportPeriodFilter) {
+    reportPeriodFilter = mountPeriodFilter(document.getElementById("report-period-filter"), () => {
+      renderReportProjects();
+      renderReportTeam();
     });
   }
+  const kpiSelect = document.getElementById("report-kpi-member");
+  const prevKpiMember = kpiSelect.value;
+  kpiSelect.innerHTML = `<option value="">Everyone (comparison)</option>` +
+    allMembers.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
+  if (allMembers.some(m => m.id === prevKpiMember)) kpiSelect.value = prevKpiMember;
 
-  /* ---- Project section ---- */
-  reportProjectRows = activeProjects.map(project => {
-    const tks = allTasks.filter(t => t.projectId === project.id);
-    const doneCount = tks.filter(t => t.status === "done").length;
-    const pct = tks.length ? Math.round((doneCount / tks.length) * 100) : 0;
-    const isDone = project.category === "completed";
-    return { project, taskCount: tks.length, doneCount, pct, isDone };
-  }).sort((a, b) => {
-    if (a.isDone !== b.isDone) return a.isDone ? 1 : -1;
-    const av = a.project.deadline ? new Date(a.project.deadline).getTime() : Infinity;
-    const bv = b.project.deadline ? new Date(b.project.deadline).getTime() : Infinity;
-    return av - bv;
-  });
-
-  const projBody = document.getElementById("report-project-body");
-  const projEmpty = document.getElementById("report-project-empty");
-  projBody.innerHTML = "";
-  if (reportProjectRows.length === 0) {
-    projEmpty.style.display = "block";
-  } else {
-    projEmpty.style.display = "none";
-    reportProjectRows.forEach(r => {
-      const urgency = getUrgency(r.project.deadline, r.isDone);
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><span class="pname">${escapeHtml(r.project.name)}</span></td>
-        <td>${formatDate(r.project.deadline)}</td>
-        <td><span class="urgency-badge urgency-${urgency.cls}">${urgency.label}</span></td>
-        <td>
-          <div class="report-progress">
-            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${r.pct}%"></div></div>
-            <span class="report-progress-txt">${r.doneCount}/${r.taskCount} · ${r.pct}%</span>
-          </div>
-        </td>
-      `;
-      tr.addEventListener("click", () => openBoard(r.project.id));
-      projBody.appendChild(tr);
-    });
-  }
+  renderReportProjects();
+  renderReportTeam();
 }
 
-document.getElementById("report-kpi-member").addEventListener("change", renderReportKpi);
+document.getElementById("report-kpi-member").addEventListener("change", renderReportTeam);
+document.getElementById("report-project-scope").addEventListener("change", renderReportProjects);
+document.querySelectorAll("[data-report-tab]").forEach(btn => {
+  btn.addEventListener("click", () => setReportTab(btn.dataset.reportTab));
+});
 
 document.getElementById("report-stat-overdue-tasks").addEventListener("click", () => {
   openReportDetail(
@@ -3817,26 +3877,32 @@ document.getElementById("report-stat-due-week").addEventListener("click", () => 
   );
 });
 
+function periodSlug() {
+  return (reportPeriodFilter ? reportPeriodFilter.label() : "all-time").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 document.getElementById("btn-export-employee-csv").addEventListener("click", () => {
   const rows = reportEmployeeRows.map(r => [
-    r.member.name, r.assignedCount, r.projectCount, r.weekCount, r.monthCount, r.yearCount,
-    r.rate + "%", r.nextDeadline ? formatDate(r.nextDeadline) : "—"
+    r.member.name, r.k.assigned, r.k.done, r.k.ontime, r.k.late, r.k.overdue,
+    r.k.assigned ? r.k.completion + "%" : "—", r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%"
   ]);
   downloadCsv(
-    "employee-report.csv",
-    ["Employee", "Tasks Assigned", "Projects", "Completed (Week)", "Completed (Month)", "Completed (Year)", "Completion Rate", "Next Deadline"],
+    `team-kpi-${periodSlug()}.csv`,
+    ["Member", "Tasks Assigned", "Done", "Done On Time", "Done Late", "Overdue (not done)", "Completion", "On-time Rate"],
     rows
   );
 });
 
 document.getElementById("btn-export-project-csv").addEventListener("click", () => {
   const rows = reportProjectRows.map(r => [
-    r.project.name, formatDate(r.project.deadline), getUrgency(r.project.deadline, r.isDone).label,
-    `${r.doneCount}/${r.taskCount}`, r.pct + "%"
+    r.project.name, r.project.deadline ? formatDate(r.project.deadline) : "—",
+    r.deadlineDays === null || r.isDone ? "" : r.deadlineDays,
+    r.workEnds ? formatDate(r.workEnds) : "—",
+    r.doneCount, r.taskCount, r.overdueTasks, r.pct + "%", r.label
   ]);
   downloadCsv(
-    "project-report.csv",
-    ["Project", "Deadline", "Priority", "Tasks Done", "Completion %"],
+    `project-report-${periodSlug()}.csv`,
+    ["Project", "Deadline", "Days To Deadline", "Work Ends", "Tasks Done", "Tasks Total", "Overdue Tasks", "Progress", "Status"],
     rows
   );
 });

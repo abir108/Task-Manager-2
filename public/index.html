@@ -197,8 +197,11 @@
         </div>
 
         <div class="panel">
-          <h2>My KPI</h2>
-          <p class="kpi-note">Each task counts 100% once you mark it Done. Finishing by its due date counts as on time.</p>
+          <div class="panel-head-row">
+            <h2>My KPI</h2>
+            <div id="profile-period-filter"></div>
+          </div>
+          <p class="kpi-note">Each task counts 100% once you mark it Done. Finishing by its due date counts as on time. Tasks are counted in the period of their due date.</p>
           <div id="profile-kpi"></div>
         </div>
 
@@ -284,75 +287,79 @@
         </div>
       </header>
 
-      <div class="stat-grid" id="report-alert-grid">
-        <div class="stat-card alert-card clickable" id="report-stat-overdue-tasks" title="Click to see the list">
-          <div class="stat-value" id="report-overdue-tasks">0</div>
-          <div class="stat-label">Overdue tasks</div>
+      <div class="report-toolbar">
+        <div class="view-toggle report-tabs">
+          <button type="button" class="view-toggle-btn active" data-report-tab="projects">Projects</button>
+          <button type="button" class="view-toggle-btn" data-report-tab="team">Team KPI</button>
         </div>
-        <div class="stat-card alert-card clickable" id="report-stat-overdue-projects" title="Click to see the list">
-          <div class="stat-value" id="report-overdue-projects">0</div>
-          <div class="stat-label">Overdue projects</div>
+        <div id="report-period-filter"></div>
+      </div>
+
+      <!-- Tab 1: project-based report -->
+      <div id="report-tab-projects">
+        <div class="stat-grid" id="report-alert-grid">
+          <div class="stat-card alert-card clickable" id="report-stat-overdue-tasks" title="Click to see the list">
+            <div class="stat-value" id="report-overdue-tasks">0</div>
+            <div class="stat-label">Overdue tasks</div>
+          </div>
+          <div class="stat-card alert-card clickable" id="report-stat-overdue-projects" title="Click to see the list">
+            <div class="stat-value" id="report-overdue-projects">0</div>
+            <div class="stat-label">Overdue projects</div>
+          </div>
+          <div class="stat-card clickable" id="report-stat-due-week" title="Click to see the list">
+            <div class="stat-value" id="report-due-week">0</div>
+            <div class="stat-label">Due within 7 days</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="report-completion-rate">0%</div>
+            <div class="stat-label">Overall completion rate</div>
+          </div>
         </div>
-        <div class="stat-card clickable" id="report-stat-due-week" title="Click to see the list">
-          <div class="stat-value" id="report-due-week">0</div>
-          <div class="stat-label">Due within 7 days</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="report-completion-rate">0%</div>
-          <div class="stat-label">Overall completion rate</div>
+
+        <div class="panel">
+          <div class="panel-head-row">
+            <h2>Project report</h2>
+            <div class="panel-tools">
+              <select id="report-project-scope" class="kpi-member-select">
+                <option value="running">Running projects</option>
+                <option value="completed">Completed projects</option>
+                <option value="all">All projects</option>
+              </select>
+              <button class="btn btn-ghost btn-small" id="btn-export-project-csv">Export CSV</button>
+            </div>
+          </div>
+          <p class="kpi-note" id="report-project-summary"></p>
+          <div class="report-table-wrap">
+            <table class="report-table" id="report-project-table">
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  <th>Deadline</th>
+                  <th>Work ends</th>
+                  <th>Progress</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="report-project-body"></tbody>
+            </table>
+          </div>
+          <p id="report-project-empty" class="empty-hint">No projects match this filter.</p>
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head-row">
-          <h2>Employee workload</h2>
-          <button class="btn btn-ghost btn-small" id="btn-export-employee-csv">Export CSV</button>
+      <!-- Tab 2: team member KPI -->
+      <div id="report-tab-team" class="u-hidden">
+        <div class="panel">
+          <div class="panel-head-row">
+            <h2>Team KPI</h2>
+            <div class="panel-tools">
+              <select id="report-kpi-member" class="kpi-member-select"></select>
+              <button class="btn btn-ghost btn-small" id="btn-export-employee-csv">Export CSV</button>
+            </div>
+          </div>
+          <p class="kpi-note" id="report-kpi-note"></p>
+          <div id="report-kpi-body"></div>
         </div>
-        <div class="report-table-wrap">
-          <table class="report-table" id="report-employee-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Tasks assigned</th>
-                <th>Projects</th>
-                <th>Completed (Wk / Mo / Yr)</th>
-                <th>Completion rate</th>
-                <th>Next deadline</th>
-              </tr>
-            </thead>
-            <tbody id="report-employee-body"></tbody>
-          </table>
-        </div>
-        <p id="report-employee-empty" class="empty-hint">No team members yet.</p>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head-row">
-          <h2>Member KPI</h2>
-          <select id="report-kpi-member" class="kpi-member-select"></select>
-        </div>
-        <div id="report-kpi-body"></div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head-row">
-          <h2>Project deadlines &amp; priority</h2>
-          <button class="btn btn-ghost btn-small" id="btn-export-project-csv">Export CSV</button>
-        </div>
-        <div class="report-table-wrap">
-          <table class="report-table" id="report-project-table">
-            <thead>
-              <tr>
-                <th>Project</th>
-                <th>Deadline</th>
-                <th>Priority</th>
-                <th>Progress</th>
-              </tr>
-            </thead>
-            <tbody id="report-project-body"></tbody>
-          </table>
-        </div>
-        <p id="report-project-empty" class="empty-hint">No active projects yet.</p>
       </div>
     </section>
 
