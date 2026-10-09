@@ -265,14 +265,14 @@ async function sendMail(to, subject, text, html) {
   } catch (err) { return fail(err); }
 }
 
-function emailHtml(title, lines, linkUrl, buttonLabel = "Open Task Manager", intro = "") {
+function emailHtml(title, lines, linkUrl, buttonLabel = "Open CloudTask", intro = "") {
   const rows = lines.map(l => `<tr><td style="padding:3px 0;color:#566690;font-size:13px">${escHtml(l[0])}</td><td style="padding:3px 0 3px 14px;color:#14214F;font-size:14px;font-weight:600">${escHtml(l[1])}</td></tr>`).join("");
   const button = linkUrl
     ? `<p style="margin:22px 0 0"><a href="${escHtml(linkUrl)}" style="background:#4382DF;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:10px 20px;border-radius:8px;display:inline-block">${escHtml(buttonLabel)}</a></p>`
     : "";
   const introHtml = intro ? `<p style="margin:0 0 14px;color:#33415F;font-size:14px;line-height:1.5">${escHtml(intro)}</p>` : "";
   return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;border:1px solid #DCE8EB;border-radius:14px;overflow:hidden">
-  <div style="background:#112E81;color:#ffffff;padding:16px 22px;font-size:16px;font-weight:700">CloudTech Bookkeeping</div>
+  <div style="background:#112E81;color:#ffffff;padding:16px 22px;font-size:16px;font-weight:700">CloudTask</div>
   <div style="padding:22px">
     <div style="font-size:18px;font-weight:700;color:#14214F;margin-bottom:12px">${escHtml(title)}</div>
     ${introHtml}
@@ -308,7 +308,7 @@ async function taskAssigned({ task, project, group, actor, memberIds }) {
       `Project: ${escSlack(ctx.project)}${ctx.group ? " · " + escSlack(ctx.group) : ""}`,
       `Due: ${due}`,
       `Assigned by ${escSlack(actorName)}`,
-      c.appUrl ? `<${c.appUrl}|Open Task Manager>` : ""
+      c.appUrl ? `<${c.appUrl}|Open CloudTask>` : ""
     ].filter(Boolean).join("\n");
 
     const lines = [["Task", ctx.title]];
@@ -335,7 +335,7 @@ async function statusChanged({ task, project, group, actor, fromLabel, toLabel, 
   const slackText = [
     `${isDone ? ":white_check_mark:" : ":arrows_counterclockwise:"} *${escSlack(actorName)}* moved *${escSlack(ctx.title)}* from _${escSlack(fromLabel)}_ to *${escSlack(toLabel)}*`,
     `Project: ${escSlack(ctx.project)}${ctx.group ? " · " + escSlack(ctx.group) : ""}`,
-    c.appUrl ? `<${c.appUrl}|Open Task Manager>` : ""
+    c.appUrl ? `<${c.appUrl}|Open CloudTask>` : ""
   ].filter(Boolean).join("\n");
 
   const results = await slackAdmin(slackText, admins);
@@ -360,11 +360,11 @@ function logResults(event, who, results) {
 async function sendInvite({ member, link, kind, invitedBy, hours }) {
   const isReset = kind === "reset";
   const who = invitedBy ? oneLine(invitedBy.name) : "An admin";
-  const subject = isReset ? "Set a new password for CloudTech Task Manager" : "You have been invited to CloudTech Task Manager";
+  const subject = isReset ? "Set a new password for CloudTask" : "You have been invited to CloudTask";
   const title = isReset ? "Set a new password" : `Welcome, ${oneLine(member.name)}`;
   const intro = isReset
     ? `${who} sent you a link to set a new password. The link works once and expires in ${hours} hours.`
-    : `${who} added you to CloudTech Task Manager. Choose your password to start. The link works once and expires in ${hours} hours.`;
+    : `${who} added you to CloudTask. Choose your password to start. The link works once and expires in ${hours} hours.`;
   const text = `${intro}
 
 Your login email: ${member.email}
@@ -380,7 +380,7 @@ If you were not expecting this, you can ignore this email.`;
 async function sendTest(admin) {
   const c = config();
   const results = [];
-  const text = ":bell: *Test notification* from CloudTech Task Manager. If you can read this, Slack is connected.";
+  const text = ":bell: *Test notification* from CloudTask. If you can read this, Slack is connected.";
   if (c.slackToken) results.push({ channel: "Slack direct message", ...(await slackDm(admin.email, text)) });
   if (c.slackWebhook || (c.slackToken && c.slackAdminChannel)) {
     const r = await slackAdmin(text, []);
@@ -388,7 +388,7 @@ async function sendTest(admin) {
   }
   if (c.smtpHost && c.smtpFrom) {
     const lines = [["Result", "Email is connected"], ["Sent to", admin.email || "-"]];
-    results.push({ channel: "Email", ...(await sendMail(admin.email, "Test notification from CloudTech Task Manager", "Email notifications are connected.", emailHtml("Test notification", lines, c.appUrl))) });
+    results.push({ channel: "Email", ...(await sendMail(admin.email, "Test notification from CloudTask", "Email notifications are connected.", emailHtml("Test notification", lines, c.appUrl))) });
   }
   if (!results.length) results.push({ channel: "Setup", ok: false, detail: "Nothing is configured yet" });
   return results;

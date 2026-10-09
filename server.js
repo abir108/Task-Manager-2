@@ -1074,5 +1074,5 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`WorkFlow server running at http://localhost:${PORT}`);
+  console.log(`CloudTask server running at http://localhost:${PORT}`);
 });

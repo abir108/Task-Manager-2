@@ -1,5 +1,5 @@
 /* ===========================================================
-   WorkFlow — Project Dashboard (multi-user, server-backed)
+   CloudTask — project dashboard (multi-user, server-backed)
 =========================================================== */
 
 const COLORS = ["#4274D9", "#293681", "#4FA3C4", "#3FAE9B", "#E08A3E", "#9A6BD6", "#EF6A6A", "#5BB57A"];
@@ -1144,7 +1144,7 @@ async function renderNotifySettings() {
           ${notifyField("smtpPort", "Port", s.smtpPort, { type: "number", placeholder: "587" })}
           ${notifyField("smtpUser", "Username", s.smtpUser, { placeholder: "you@company.com" })}
           ${notifyField("smtpPass", "Password", "", { secret: true, isSet: s.smtpPassSet, hint: "Gmail needs an App Password" })}
-          ${notifyField("smtpFrom", "From", s.smtpFrom, { placeholder: "CloudTech Bookkeeping <you@company.com>" })}
+          ${notifyField("smtpFrom", "From", s.smtpFrom, { placeholder: "CloudTask <you@company.com>" })}
           <label class="nf-check"><input type="checkbox" id="nf-notifyAdminEmail" ${s.notifyAdminEmail ? "checked" : ""}> Also email admins when a member changes a status</label>
           <label class="nf-check"><input type="checkbox" id="nf-smtpAllowSelfSigned" ${s.smtpAllowSelfSigned ? "checked" : ""}> My mail server uses a self-signed certificate</label>
         </div>
