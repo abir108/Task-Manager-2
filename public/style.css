@@ -314,25 +314,75 @@ body {
 .theme-toggle.active .theme-toggle-knob { transform: translateX(13px); }
 
 .user-card {
-  padding: 10px 12px;
-  background: var(--sidebar-surface);
-  border: 1px solid var(--sidebar-border);
-  border-radius: 12px;
+  position: relative;
+  padding: 12px 12px;
+  background:
+    radial-gradient(120px 60px at 0% 0%, rgba(170, 204, 214, 0.22), transparent 70%),
+    linear-gradient(135deg, rgba(67, 130, 223, 0.26), rgba(70, 71, 174, 0.22));
+  border: 1px solid rgba(170, 204, 214, 0.26);
+  border-radius: 16px;
   margin-bottom: 10px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  box-shadow: 0 8px 20px rgba(5, 12, 45, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
-#current-user-avatar {
-  width: 34px;
-  height: 34px;
-  font-size: 13px;
-  margin-left: 0;
-  border: 2px solid rgba(255, 255, 255, 0.85);
+.uc-avatar {
+  position: relative;
   flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  padding: 2.5px;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, #AACCD6, #4382DF, #4647AE, #AACCD6);
+  box-shadow: 0 4px 12px rgba(5, 12, 45, 0.45);
 }
-.user-name { color: #fff; font-weight: 700; font-size: 13px; }
-.user-role { color: var(--sky); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+.uc-avatar #current-user-avatar {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: .02em;
+  border: 2px solid #0F2570;
+  overflow: hidden;
+  background-clip: padding-box;
+}
+.uc-avatar #current-user-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+.uc-status {
+  position: absolute;
+  right: -1px;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #2FD27F;
+  border: 2.5px solid #0F2570;
+  box-shadow: 0 0 10px rgba(47, 210, 127, 0.75);
+}
+.uc-info { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.user-name {
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.25;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-role {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--sky);
+  background: rgba(170, 204, 214, 0.14);
+  border: 1px solid rgba(170, 204, 214, 0.3);
+}
 
 .logout-btn {
   width: 100%;
