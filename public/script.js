@@ -741,6 +741,10 @@ async function renderProfilePage() {
     : "—";
   document.getElementById("ph-projects").textContent = projectIds.size;
   document.getElementById("ph-open").textContent = open;
+  const lifetimePoints = computeKpi(assigned);
+  document.getElementById("ph-points").textContent = lifetimePoints.pointsScoredMax
+    ? `${lifetimePoints.pointsEarned} / ${lifetimePoints.pointsScoredMax}`
+    : "—";
   profileKpiTasks = assigned;
   profileKpiProjects = activeProjects;
   if (!profileKpiFilter) {
@@ -802,7 +806,7 @@ document.getElementById("btn-change-password").addEventListener("click", async (
   successEl.textContent = "";
   const currentPassword = document.getElementById("input-current-password").value;
   const newPassword = document.getElementById("input-new-password").value;
-  if (newPassword.length < 6) { errEl.textContent = "New password must be at least 6 characters."; return; }
+  if (newPassword.length < 10) { errEl.textContent = "New password must be at least 10 characters, with letters and numbers."; return; }
   try {
     await api("POST", "/api/me/change-password", { currentPassword, newPassword });
     document.getElementById("input-current-password").value = "";
@@ -963,8 +967,11 @@ document.getElementById("btn-new-member").addEventListener("click", () => {
   document.getElementById("input-member-name").value = "";
   document.getElementById("input-member-email").value = "";
   document.getElementById("input-member-password").value = "";
-  document.getElementById("input-member-password").placeholder = "At least 6 characters";
+  document.getElementById("input-member-password").placeholder = "Leave blank to email an invitation";
   document.getElementById("label-member-password").firstChild.textContent = "Password ";
+  document.getElementById("member-invite-note").classList.remove("u-hidden");
+  document.getElementById("btn-member-send-link").classList.add("u-hidden");
+  document.getElementById("btn-save-member").textContent = "Send invitation";
   document.getElementById("input-member-admin").checked = false;
   document.getElementById("member-error").textContent = "";
   resetAvatarPicker(null);
@@ -992,10 +999,17 @@ document.getElementById("btn-save-member").addEventListener("click", async () =>
       await api("PATCH", `/api/members/${editId}`, body);
     } else {
       if (!email) { errEl.textContent = "Please enter an email address."; return; }
-      if (!password) { errEl.textContent = "Please set an initial password."; return; }
-      const body = { name, email, password, role: admin ? "admin" : "member" };
+      const body = { name, email, role: admin ? "admin" : "member" };
+      if (password) body.password = password;
       if (pendingAvatarUrl) body.avatarUrl = pendingAvatarUrl;
-      await api("POST", "/api/members", body);
+      const created = await api("POST", "/api/members", body);
+      closeModal("modal-member");
+      await renderTeam();
+      if (created.invite) {
+        if (created.invite.emailed) showToast(`Invitation emailed to ${created.email}`);
+        else showInviteLinkModal(created, created.invite);
+      }
+      return;
     }
     closeModal("modal-member");
     await renderTeam();
@@ -1004,13 +1018,60 @@ document.getElementById("btn-save-member").addEventListener("click", async () =>
   }
 });
 
+/* ---------- Invitation links ---------- */
+function showInviteLinkModal(member, invite) {
+  document.getElementById("invite-link-title").textContent = invite.kind === "reset" ? "Password-setup link" : "Invitation link";
+  const status = document.getElementById("invite-link-status");
+  status.textContent = invite.emailed
+    ? `Emailed to ${member.email}. You can also copy the link below.`
+    : /yourself/.test(invite.detail || "") ? `${invite.detail}.` : `${invite.detail || "Link created"}. Send this link to ${member.name}.`;
+  const input = document.getElementById("invite-link-url");
+  input.value = invite.link;
+  openModal("modal-invite-link");
+  input.focus();
+  input.select();
+}
+
+async function inviteMember(member, send) {
+  try {
+    const result = await api("POST", `/api/members/${member.id}/invite`, { send });
+    await renderTeam();
+    if (send && result.emailed) showToast(`Link emailed to ${member.email}`);
+    else showInviteLinkModal(member, result);
+  } catch (err) { alert(err.message); }
+}
+
+document.getElementById("btn-member-send-link").addEventListener("click", () => {
+  const editId = document.getElementById("btn-save-member").dataset.editId;
+  const member = members.find(m => m.id === editId);
+  if (!member) return;
+  closeModal("modal-member");
+  inviteMember(member, true);
+});
+
+document.getElementById("btn-invite-copy").addEventListener("click", async () => {
+  const input = document.getElementById("invite-link-url");
+  try {
+    await navigator.clipboard.writeText(input.value);
+  } catch (e) {
+    input.select();
+    document.execCommand("copy");
+  }
+  showToast("Link copied");
+});
+
 function openEditMember(m) {
   document.getElementById("member-modal-title").textContent = "Edit Teammate";
   document.getElementById("input-member-name").value = m.name;
   document.getElementById("input-member-email").value = m.email || "";
   document.getElementById("input-member-password").value = "";
   document.getElementById("input-member-password").placeholder = "Leave blank to keep current password";
-  document.getElementById("label-member-password").firstChild.textContent = "Reset password ";
+  document.getElementById("label-member-password").firstChild.textContent = "Set a password directly ";
+  document.getElementById("member-invite-note").classList.add("u-hidden");
+  document.getElementById("btn-member-send-link").classList.toggle("u-hidden", !m.email);
+  document.getElementById("btn-member-send-link").textContent = m.loginStatus === "active"
+    ? "Email a password-reset link instead" : "Email a password-setup link instead";
+  document.getElementById("btn-save-member").textContent = "Save";
   document.getElementById("input-member-admin").checked = m.role === "admin";
   document.getElementById("member-error").textContent = "";
   resetAvatarPicker(m.avatarUrl);
@@ -1155,6 +1216,17 @@ document.getElementById("btn-notify-test").addEventListener("click", async () =>
   btn.disabled = false;
 });
 
+function invitePillHtml(m) {
+  if (m.loginStatus === "invited") {
+    const hours = Math.max(1, Math.round((m.inviteExpiresAt - Date.now()) / 3600000));
+    const left = hours >= 24 ? `${Math.round(hours / 24)}d` : `${hours}h`;
+    return `<div class="invite-pill invited">Invited · link expires in ${left}</div>`;
+  }
+  if (m.loginStatus === "expired") return `<div class="invite-pill expired">Invite expired — send a new one</div>`;
+  if (m.loginStatus === "no-login") return `<div class="invite-pill expired">No password yet</div>`;
+  return "";
+}
+
 async function renderTeam() {
   members = await api("GET", "/api/members");
   team = await api("GET", "/api/team-lite");
@@ -1177,13 +1249,19 @@ async function renderTeam() {
       <div class="info">
         <div class="name">${escapeHtml(m.name)} ${m.role === "admin" ? '<span class="admin-badge">Admin</span>' : ""}</div>
         <div class="member-email${m.email ? "" : " no-email"}"${m.email ? ` title="${escapeHtml(m.email)}"` : ""}>${m.email ? escapeHtml(m.email) : "<em>No email set — can't log in yet</em>"}</div>
+        ${invitePillHtml(m)}
       </div>
       <div class="actions">
+        ${m.email && m.loginStatus !== "active" ? `<button class="reset-pin-btn" data-action="resend">${m.loginStatus === "invited" ? "Resend" : "Invite"}</button><button class="reset-pin-btn" data-action="link">Link</button>` : ""}
         <button class="reset-pin-btn" data-action="edit">Edit</button>
         <button class="remove-btn" title="Remove">&times;</button>
       </div>
     `;
     card.querySelector('[data-action="edit"]').addEventListener("click", () => openEditMember(m));
+    const resendBtn = card.querySelector('[data-action="resend"]');
+    if (resendBtn) resendBtn.addEventListener("click", () => inviteMember(m, true));
+    const linkBtn = card.querySelector('[data-action="link"]');
+    if (linkBtn) linkBtn.addEventListener("click", () => inviteMember(m, false));
     card.querySelector(".remove-btn").addEventListener("click", async () => {
       if (!confirm(`Remove ${m.name} from the team? They will no longer be able to log in.`)) return;
       try {
@@ -1946,6 +2024,23 @@ function buildGroupList(group, topTasks, groupTasks, project) {
   return wrap;
 }
 
+/* Small chip showing a task's points: "10 pts" while open, "★ 8/10" once an admin has scored it. */
+function pointsText(task) {
+  if (task.points == null) return "";
+  if (task.status === "done" && task.pointsEarned != null) return `★ ${task.pointsEarned}/${task.points}`;
+  return `${task.points} pts`;
+}
+function makePointsBadge(task) {
+  const text = pointsText(task);
+  if (!text) return null;
+  const badge = document.createElement("span");
+  const scored = task.status === "done" && task.pointsEarned != null;
+  badge.className = "pts-badge" + (scored ? " scored" : "");
+  badge.title = scored ? `Scored ${task.pointsEarned} of ${task.points} points` : `Worth ${task.points} points`;
+  badge.textContent = text;
+  return badge;
+}
+
 function buildListRow(task, group, project, groupTasks) {
   const assigneeIds = task.assigneeIds || [];
   const assignedMembers = assigneeIds.map(id => team.find(m => m.id === id)).filter(Boolean);
@@ -1980,6 +2075,7 @@ function buildListRow(task, group, project, groupTasks) {
   }
   titleCell.appendChild(toggleSlot);
   const titleText = document.createElement("span");
+  titleText.className = "kl-title-text";
   titleText.textContent = task.title;
   titleCell.appendChild(titleText);
   if (subitems.length > 0) {
@@ -1988,6 +2084,8 @@ function buildListRow(task, group, project, groupTasks) {
     subBadge.textContent = `${subitems.filter(s => s.status === "done").length}/${subitems.length}`;
     titleCell.appendChild(subBadge);
   }
+  const ptsBadge = makePointsBadge(task);
+  if (ptsBadge) titleCell.appendChild(ptsBadge);
   row.appendChild(titleCell);
 
   const toolsCell = document.createElement("span");
@@ -2097,7 +2195,12 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
 
   const titleCell = document.createElement("span");
   titleCell.className = "kl-col-task";
-  titleCell.textContent = sub.title;
+  const subTitleText = document.createElement("span");
+  subTitleText.className = "kl-title-text";
+  subTitleText.textContent = sub.title;
+  titleCell.appendChild(subTitleText);
+  const subPtsBadge = makePointsBadge(sub);
+  if (subPtsBadge) titleCell.appendChild(subPtsBadge);
   row.appendChild(titleCell);
 
   const toolsCell = document.createElement("span");
@@ -2611,6 +2714,8 @@ function buildTaskCard(task, group, project, groupTasks) {
   titleEl.className = "kanban-card-title";
   titleEl.textContent = task.title;
   card.appendChild(titleEl);
+  const cardPts = makePointsBadge(task);
+  if (cardPts) { cardPts.classList.add("pts-card"); card.appendChild(cardPts); }
 
   const meta = document.createElement("div");
   meta.className = "kanban-card-meta";
@@ -3065,6 +3170,7 @@ function openTaskDetailModal(task, group, project, groupTasks) {
   endInput.value = task.end || "";
   [dueInput, startInput, endInput].forEach(inp => inp.disabled = !editable);
 
+  fillTdPoints(task, editable);
   renderTdOwnerList(task, project, editable);
   renderTdSubitemsList(task, group, groupTasks);
 
@@ -3073,6 +3179,38 @@ function openTaskDetailModal(task, group, project, groupTasks) {
 
   openModal("modal-task-detail");
 }
+
+/* Points: an admin sets what the task is worth and, once it is Done, how many points were earned.
+   Members only see the numbers. */
+function fillTdPoints(task, editable) {
+  const worth = document.getElementById("td-points");
+  const earned = document.getElementById("td-points-earned");
+  const hint = document.getElementById("td-points-hint");
+  worth.value = task.points == null ? "" : task.points;
+  earned.value = task.pointsEarned == null ? "" : task.pointsEarned;
+  worth.disabled = !editable;
+  const canScore = editable && task.status === "done" && task.points != null;
+  earned.disabled = !canScore;
+  earned.max = task.points == null ? 1000 : task.points;
+  if (!editable) hint.textContent = task.points == null ? "No points set for this task." : "";
+  else if (task.points == null) hint.textContent = "Set what this task is worth. Scoring opens once it is Done.";
+  else if (task.status !== "done") hint.textContent = "Scoring opens once the task is marked Done.";
+  else hint.textContent = "Enter the points earned (0 to " + task.points + "). They count in the member's profile and KPI.";
+}
+
+async function saveTdPoints(patch) {
+  if (!taskDetailContext) return;
+  try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, patch); } catch (err) { alert(err.message); }
+  await loadAndRenderBoard();
+  const fresh = tasks.find(t => t.id === taskDetailContext.taskId);
+  if (fresh) fillTdPoints(fresh, isAdmin());
+}
+document.getElementById("td-points").addEventListener("change", e => {
+  saveTdPoints({ points: e.target.value === "" ? null : Number(e.target.value) });
+});
+document.getElementById("td-points-earned").addEventListener("change", e => {
+  saveTdPoints({ pointsEarned: e.target.value === "" ? null : Number(e.target.value) });
+});
 
 function renderTdOwnerList(task, project, editable) {
   const container = document.getElementById("td-owner-list");
@@ -3155,6 +3293,8 @@ document.getElementById("td-status").addEventListener("change", async (e) => {
   if (!taskDetailContext) return;
   try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, { status: e.target.value }); } catch (err) { alert(err.message); }
   await loadAndRenderBoard();
+  const changed = tasks.find(t => t.id === taskDetailContext.taskId);
+  if (changed) fillTdPoints(changed, isAdmin());
 });
 document.getElementById("td-due").addEventListener("change", async (e) => {
   if (!taskDetailContext) return;
@@ -3620,18 +3760,35 @@ function kpiTaskOutcome(task) {
 }
 
 function computeKpi(tasks) {
-  const k = { assigned: tasks.length, done: 0, ontime: 0, late: 0, nodeadline: 0, overdue: 0, open: 0, lateDays: 0 };
+  const k = { assigned: tasks.length, done: 0, ontime: 0, late: 0, nodeadline: 0, overdue: 0, open: 0, lateDays: 0,
+    pointsEarned: 0, pointsScoredMax: 0, pointsPending: 0, pointsOpen: 0 };
   tasks.forEach(t => {
     const o = kpiTaskOutcome(t);
     k[o.kind]++;
     if (t.status === "done") k.done++;
     if (o.kind === "late") k.lateDays += o.days;
+    // Points count only once the task is Done and an admin has scored it.
+    if (t.points != null) {
+      if (t.status !== "done") k.pointsOpen += t.points;
+      else if (t.pointsEarned != null) { k.pointsEarned += t.pointsEarned; k.pointsScoredMax += t.points; }
+      else k.pointsPending++;
+    }
   });
+  k.pointsEarned = Math.round(k.pointsEarned * 2) / 2;
+  k.pointsRate = k.pointsScoredMax ? Math.round((k.pointsEarned / k.pointsScoredMax) * 100) : null;
   k.completion = k.assigned ? Math.round((k.done / k.assigned) * 100) : 0;
   const timed = k.ontime + k.late;
   k.onTimeRate = timed ? Math.round((k.ontime / timed) * 100) : null;
   k.avgLate = k.late ? (k.lateDays / k.late).toFixed(1) : "0";
   return k;
+}
+
+function pointsSummary(k) {
+  const parts = [];
+  if (k.pointsRate !== null) parts.push(`${k.pointsRate}% of ${k.pointsScoredMax} possible`);
+  if (k.pointsPending) parts.push(`${k.pointsPending} awaiting score`);
+  if (!parts.length) parts.push(k.pointsOpen ? `${k.pointsOpen} pts still open` : "No scored tasks yet");
+  return parts.join(" · ");
 }
 
 function kpiHtml(memberTasks, projects, periodLabel) {
@@ -3664,6 +3821,11 @@ function kpiHtml(memberTasks, projects, periodLabel) {
         <div class="vital-value">${k.overdue}<small>tasks</small></div>
         <div class="vital-sub ${k.overdue ? "bad" : "good"}">${k.overdue ? "Not done, past due" : "All clear"}</div>
       </div>
+      <div class="vital-card vital-points">
+        <div class="vital-title">Points earned</div>
+        <div class="vital-value">${k.pointsEarned}<small>pts</small></div>
+        <div class="vital-sub ${tone(k.pointsRate, 80, 50)}">${pointsSummary(k)}</div>
+      </div>
     </div>`;
 
   const byProject = new Map();
@@ -3683,6 +3845,7 @@ function kpiHtml(memberTasks, projects, periodLabel) {
       if (pk.ontime) chips.push(`<span class="kpi-chip kpi-ontime">${pk.ontime} on time</span>`);
       if (pk.late) chips.push(`<span class="kpi-chip kpi-late">${pk.late} late</span>`);
       if (pk.overdue) chips.push(`<span class="kpi-chip kpi-overdue">${pk.overdue} overdue</span>`);
+      if (pk.pointsScoredMax) chips.push(`<span class="kpi-chip kpi-points">★ ${pk.pointsEarned}/${pk.pointsScoredMax} pts</span>`);
       const rows = tks
         .map(t => ({ t, o: kpiTaskOutcome(t) }))
         .sort((a, b) => rank[a.o.kind] - rank[b.o.kind])
@@ -3693,6 +3856,7 @@ function kpiHtml(memberTasks, projects, periodLabel) {
               <span class="rdr-sub">${t.dueDate ? "Due " + formatDate(t.dueDate) : "No due date"}${t.status === "done" && t.completedAt ? " · Done " + fmtTs(t.completedAt) : ""}</span>
             </div>
             <span class="kpi-chip kpi-${o.kind}">${escapeHtml(o.label)}</span>
+            ${pointsText(t) ? `<span class="kpi-chip kpi-points">${escapeHtml(pointsText(t))}</span>` : ""}
           </div>`).join("");
       return `
         <details class="kpi-project">
@@ -3958,7 +4122,7 @@ function renderReportTeam() {
     <div class="report-table-wrap">
       <table class="report-table kpi-compare-table">
         <thead>
-          <tr><th>Member</th><th>Assigned</th><th>Done</th><th>On time</th><th>Late</th><th>Overdue</th><th>Completion</th><th>On-time rate</th></tr>
+          <tr><th>Member</th><th>Assigned</th><th>Done</th><th>On time</th><th>Late</th><th>Overdue</th><th>Completion</th><th>On-time rate</th><th>Points</th></tr>
         </thead>
         <tbody>
           ${reportEmployeeRows.map(r => `
@@ -3971,6 +4135,7 @@ function renderReportTeam() {
               <td class="kpi-bad-text">${r.k.overdue}</td>
               <td>${r.k.assigned ? r.k.completion + "%" : "—"}</td>
               <td>${r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%"}</td>
+              <td class="kpi-points-text">${r.k.pointsScoredMax || r.k.pointsEarned ? r.k.pointsEarned + `<span class="cell-sub">of ${r.k.pointsScoredMax}</span>` : "—"}</td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -4085,11 +4250,12 @@ function periodSlug() {
 document.getElementById("btn-export-employee-csv").addEventListener("click", () => {
   const rows = reportEmployeeRows.map(r => [
     r.member.name, r.k.assigned, r.k.done, r.k.ontime, r.k.late, r.k.overdue,
-    r.k.assigned ? r.k.completion + "%" : "—", r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%"
+    r.k.assigned ? r.k.completion + "%" : "—", r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%",
+    r.k.pointsEarned, r.k.pointsScoredMax
   ]);
   downloadCsv(
     `team-kpi-${periodSlug()}.csv`,
-    ["Member", "Tasks Assigned", "Done", "Done On Time", "Done Late", "Overdue (not done)", "Completion", "On-time Rate"],
+    ["Member", "Tasks Assigned", "Done", "Done On Time", "Done Late", "Overdue (not done)", "Completion", "On-time Rate", "Points Earned", "Points Possible (scored tasks)"],
     rows
   );
 });
@@ -4108,5 +4274,69 @@ document.getElementById("btn-export-project-csv").addEventListener("click", () =
   );
 });
 
+/* ---------- Invitation page (link from the invite email: /#invite=TOKEN) ---------- */
+let inviteToken = null;
+
+function openInviteScreen(token) {
+  inviteToken = token;
+  document.getElementById("login-screen").classList.add("hidden");
+  document.getElementById("app-shell").classList.add("hidden");
+  document.getElementById("invite-screen").classList.remove("hidden");
+  const title = document.getElementById("invite-title");
+  const subtitle = document.getElementById("invite-subtitle");
+  const errEl = document.getElementById("invite-error");
+  errEl.textContent = "";
+  api("GET", `/api/invite/${encodeURIComponent(token)}`).then(info => {
+    title.textContent = info.kind === "reset" ? "Set a new password" : `Welcome, ${info.name}`;
+    subtitle.textContent = info.kind === "reset" ? "Choose a new password for your account." : "Choose a password to finish setting up your account.";
+    document.getElementById("invite-email").value = info.email || "";
+    document.getElementById("invite-fields").classList.remove("u-hidden");
+    document.getElementById("invite-submit").classList.remove("u-hidden");
+    document.getElementById("invite-password").focus();
+  }).catch(err => {
+    title.textContent = "Link not valid";
+    subtitle.textContent = "";
+    errEl.textContent = err.message;
+  });
+}
+
+document.getElementById("invite-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById("invite-error");
+  errEl.textContent = "";
+  const password = document.getElementById("invite-password").value;
+  if (password !== document.getElementById("invite-password2").value) {
+    errEl.textContent = "The two passwords do not match.";
+    return;
+  }
+  try {
+    const data = await api("POST", `/api/invite/${encodeURIComponent(inviteToken)}`, { password });
+    inviteToken = null;
+    me = data.member;
+    document.getElementById("invite-password").value = "";
+    document.getElementById("invite-password2").value = "";
+    document.getElementById("invite-screen").classList.add("hidden");
+    await afterLogin();
+  } catch (err) {
+    errEl.textContent = err.message;
+  }
+});
+
+document.getElementById("invite-back").addEventListener("click", (e) => {
+  e.preventDefault();
+  inviteToken = null;
+  document.getElementById("invite-screen").classList.add("hidden");
+  tryResume();
+});
+
 /* ---------- Init ---------- */
-tryResume();
+(function boot() {
+  const match = /^#invite=([A-Za-z0-9_-]{20,100})$/.exec(location.hash);
+  if (match) {
+    // Take the token out of the address bar right away so it is not left in history or screenshots.
+    history.replaceState(null, "", location.pathname + location.search);
+    openInviteScreen(match[1]);
+  } else {
+    tryResume();
+  }
+})();

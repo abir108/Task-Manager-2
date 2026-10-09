@@ -8,6 +8,7 @@ const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const { store, save, uid, recomputeProjectCategory, syncParentFromSubtasks, normalizeMembers, isValidAvatarUrl, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
 const notify = require("./notify");
+const security = require("./security");
 
 const logNotifyError = err => console.warn("[notify]", err && err.message ? err.message : err);
 
@@ -25,6 +26,8 @@ if (!sessionSecret) {
   }
 }
 
+app.disable("x-powered-by");
+app.use(security.securityHeaders(isProduction));
 app.use(express.json({ limit: "5mb" }));
 app.use(session({
   secret: sessionSecret,
@@ -34,26 +37,20 @@ app.use(session({
 }));
 
 /* ---------- Login rate limiting ---------- */
-const loginAttempts = new Map(); // key: lowercased email -> { count, lockedUntil }
-const MAX_ATTEMPTS = 5;
-const LOCK_MS = 60 * 1000;
+/* Two layers: a short lock per email (stops guessing one person's password) and a longer
+   limit per IP address (stops one machine trying many emails or many passwords).
+   Only failed logins count towards either limit. */
+const emailFailures = security.createLimiter({ max: 5, windowMs: 5 * 60 * 1000 });
+const ipFailures = security.createLimiter({ max: 20, windowMs: 15 * 60 * 1000 });
+// Invite / reset links: every request counts, so a link cannot be guessed by brute force.
+const inviteRequests = security.createLimiter({ max: 30, windowMs: 15 * 60 * 1000 });
+const inviteIpFailures = security.createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
 
-function isLocked(key) {
-  const rec = loginAttempts.get(key);
-  return rec && rec.lockedUntil && rec.lockedUntil > Date.now();
-}
-function registerFailure(key) {
-  const rec = loginAttempts.get(key) || { count: 0, lockedUntil: 0 };
-  rec.count += 1;
-  if (rec.count >= MAX_ATTEMPTS) {
-    rec.lockedUntil = Date.now() + LOCK_MS;
-    rec.count = 0;
-  }
-  loginAttempts.set(key, rec);
-}
-function clearFailures(key) {
-  loginAttempts.delete(key);
-}
+const clientIp = req => req.ip || (req.socket && req.socket.remoteAddress) || "unknown";
+// Compared against when an email is unknown, so a missing account takes as long as a wrong password.
+const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), 12);
+
+const INVITE_HOURS = 48;
 
 /* ---------- Auth helpers ---------- */
 function currentMember(req) {
@@ -75,11 +72,52 @@ function requireAdmin(req, res, next) {
   });
 }
 
+/* "active" can log in; "invited" has a pending link; "expired" had one that ran out;
+   "no-login" has neither a password nor a link. */
+function loginStatus(m) {
+  if (m.passwordHash) return "active";
+  if (m.inviteTokenHash) return m.inviteExpiresAt > Date.now() ? "invited" : "expired";
+  return "no-login";
+}
+
 function publicMember(m) {
-  return { id: m.id, name: m.name, email: m.email || null, role: m.role, avatarUrl: m.avatarUrl || null, createdAt: m.createdAt };
+  const pending = m.inviteTokenHash && m.inviteExpiresAt > Date.now();
+  return {
+    id: m.id, name: m.name, email: m.email || null, role: m.role, avatarUrl: m.avatarUrl || null, createdAt: m.createdAt,
+    loginStatus: loginStatus(m),
+    inviteExpiresAt: pending ? m.inviteExpiresAt : null
+  };
+}
+
+/* Makes a fresh invite/reset link for a member (the old one stops working) and, when asked,
+   emails it. The link keeps the token after "#" so it never reaches server logs or Referer headers. */
+function createInvite(req, member, { send, kind }) {
+  const { token, hash } = security.newToken();
+  member.inviteTokenHash = hash;
+  member.inviteExpiresAt = Date.now() + INVITE_HOURS * 3600 * 1000;
+  member.inviteKind = kind;
+  const base = notify.appBaseUrl() || `${req.protocol}://${req.get("host")}`;
+  const link = `${base.replace(/\/+$/, "")}/#invite=${token}`;
+  return { link, send: send ? notify.sendInvite({ member, link, kind, invitedBy: req.member, hours: INVITE_HOURS }) : Promise.resolve(null) };
+}
+
+async function inviteResult(sendPromise) {
+  const r = await sendPromise;
+  if (r === null) return { emailed: false, detail: "Email is not set up yet, so copy the link and send it yourself" };
+  return { emailed: !!r.ok, detail: r.ok ? "Invitation emailed" : `Email failed: ${r.detail}` };
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/* Points an admin allots to a task (pointsAllotted) and, once the work is Done, the points
+   actually earned (pointsEarned, 0..allotted). Values are whole numbers or halves up to 1000. */
+const MAX_TASK_POINTS = 1000;
+function parsePoints(value) {
+  if (value === null || value === "" || value === undefined) return { value: null };
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > MAX_TASK_POINTS) return { error: `Points must be a number from 0 to ${MAX_TASK_POINTS}` };
+  return { value: Math.round(n * 2) / 2 };
+}
 
 function projectVisible(project, member) {
   if (member.role === "admin") return true;
@@ -141,20 +179,37 @@ function deleteNotesForTaskIds(taskIds) {
 }
 
 /* ---------- Auth routes ---------- */
-app.post("/api/login", (req, res) => {
+/* A new session id is issued at login so an id planted before login is useless afterwards. */
+function startSession(req, member) {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate(err => {
+      if (err) return reject(err);
+      req.session.userId = member.id;
+      req.session.save(e => (e ? reject(e) : resolve()));
+    });
+  });
+}
+
+app.post("/api/login", async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const password = String(req.body.password || "");
   if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
 
-  if (isLocked(email)) return res.status(429).json({ error: "Too many attempts. Try again in a minute." });
+  const ip = clientIp(req);
+  if (emailFailures.blocked(email) || ipFailures.blocked(ip)) {
+    return res.status(429).json({ error: "Too many attempts. Please wait a few minutes and try again." });
+  }
 
   const member = store.members.find(m => m.email && m.email.toLowerCase() === email);
-  if (!member || !member.passwordHash || !bcrypt.compareSync(password, member.passwordHash)) {
-    registerFailure(email);
+  const hash = member && member.passwordHash ? member.passwordHash : DUMMY_HASH;
+  const matches = password.length <= 200 && await bcrypt.compare(password, hash);
+  if (!member || !member.passwordHash || !matches) {
+    emailFailures.hit(email);
+    ipFailures.hit(ip);
     return res.status(401).json({ error: "Invalid email or password" });
   }
-  clearFailures(email);
-  req.session.userId = member.id;
+  emailFailures.reset(email);
+  await startSession(req, member);
   res.json({ member: publicMember(member) });
 });
 
@@ -198,17 +253,58 @@ app.post("/api/me/change-password", requireAuth, async (req, res) => {
   const member = req.member;
   const currentPassword = String(req.body.currentPassword || "");
   const newPassword = String(req.body.newPassword || "");
-  if (newPassword.length < 6) return res.status(400).json({ error: "New password must be at least 6 characters" });
+  const problem = security.passwordProblem(newPassword, member);
+  if (problem) return res.status(400).json({ error: problem });
   if (member.passwordHash) {
-    if (!bcrypt.compareSync(currentPassword, member.passwordHash)) {
+    if (!(await bcrypt.compare(currentPassword.slice(0, 200), member.passwordHash))) {
       return res.status(400).json({ error: "Current password is incorrect" });
     }
   } else if (!member.email) {
     return res.status(400).json({ error: "Ask an admin to set your email and an initial password first" });
   }
-  member.passwordHash = bcrypt.hashSync(newPassword, 10);
+  member.passwordHash = bcrypt.hashSync(newPassword, 12);
+  delete member.inviteTokenHash;
+  delete member.inviteExpiresAt;
   await save();
   res.json({ ok: true });
+});
+
+/* ---------- Invite / reset links (public, but only reachable with a valid token) ---------- */
+function memberForInvite(token) {
+  if (typeof token !== "string" || token.length < 20 || token.length > 100) return null;
+  const hash = security.hashToken(token);
+  return store.members.find(m => m.inviteTokenHash === hash && m.inviteExpiresAt > Date.now()) || null;
+}
+
+app.get("/api/invite/:token", (req, res) => {
+  const ip = clientIp(req);
+  if (!inviteRequests.hit(ip) || inviteIpFailures.blocked(ip)) return res.status(429).json({ error: "Too many attempts. Please wait a few minutes." });
+  const member = memberForInvite(req.params.token);
+  if (!member) {
+    inviteIpFailures.hit(ip);
+    return res.status(410).json({ error: "This link is invalid or has expired. Ask your admin to send a new one." });
+  }
+  res.json({ name: member.name, email: member.email, kind: member.inviteKind === "reset" ? "reset" : "invite" });
+});
+
+app.post("/api/invite/:token", async (req, res) => {
+  const ip = clientIp(req);
+  if (!inviteRequests.hit(ip) || inviteIpFailures.blocked(ip)) return res.status(429).json({ error: "Too many attempts. Please wait a few minutes." });
+  const member = memberForInvite(req.params.token);
+  if (!member) {
+    inviteIpFailures.hit(ip);
+    return res.status(410).json({ error: "This link is invalid or has expired. Ask your admin to send a new one." });
+  }
+  const password = String(req.body.password || "");
+  const problem = security.passwordProblem(password, member);
+  if (problem) return res.status(400).json({ error: problem });
+  member.passwordHash = bcrypt.hashSync(password, 12);
+  delete member.inviteTokenHash;
+  delete member.inviteExpiresAt;
+  delete member.inviteKind;
+  await save();
+  await startSession(req, member);
+  res.json({ member: publicMember(member) });
 });
 
 /* ---------- Lightweight directory (any logged-in user, name-only) ---------- */
@@ -232,7 +328,10 @@ app.post("/api/members", requireAdmin, async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const password = String(req.body.password || "");
   if (!email || !EMAIL_RE.test(email)) return res.status(400).json({ error: "Enter a valid email address" });
-  if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+  if (password) {
+    const problem = security.passwordProblem(password, { name, email });
+    if (problem) return res.status(400).json({ error: problem });
+  }
   if (store.members.some(m => m.email && m.email.toLowerCase() === email)) {
     return res.status(409).json({ error: "That email is already in use" });
   }
@@ -244,20 +343,32 @@ app.post("/api/members", requireAdmin, async (req, res) => {
   }
   const member = {
     id: uid(), name, role, avatarUrl, createdAt: Date.now(),
-    email, passwordHash: bcrypt.hashSync(password, 10)
+    email, passwordHash: password ? bcrypt.hashSync(password, 12) : null
   };
+  // No password given -> the member is invited and chooses their own through a link.
+  const invite = password ? null : createInvite(req, member, { send: req.body.sendInvite !== false, kind: "invite" });
   store.members.push(member);
   await save();
-  res.status(201).json(publicMember(member));
+  const out = publicMember(member);
+  if (invite) out.invite = { link: invite.link, hours: INVITE_HOURS, ...(await inviteResult(invite.send)) };
+  res.status(201).json(out);
+});
+
+/* New invite / password-reset link for an existing member. send:false only returns the link. */
+app.post("/api/members/:id/invite", requireAdmin, async (req, res) => {
+  const member = store.members.find(m => m.id === req.params.id);
+  if (!member) return res.status(404).json({ error: "Not found" });
+  if (!member.email) return res.status(400).json({ error: "Add an email address for this member first" });
+  const kind = member.passwordHash ? "reset" : "invite";
+  const invite = createInvite(req, member, { send: req.body.send !== false, kind });
+  await save();
+  const result = req.body.send === false ? { emailed: false, detail: "Link created" } : await inviteResult(invite.send);
+  res.json({ link: invite.link, hours: INVITE_HOURS, kind, ...result });
 });
 
 app.patch("/api/members/:id", requireAdmin, async (req, res) => {
   const member = store.members.find(m => m.id === req.params.id);
   if (!member) return res.status(404).json({ error: "Not found" });
-
-  if (req.body.email !== undefined && !member.passwordHash && !req.body.password) {
-    return res.status(400).json({ error: "Set a password for this member too, so they can log in" });
-  }
 
   if (req.body.name !== undefined) {
     const name = String(req.body.name).trim();
@@ -273,14 +384,21 @@ app.patch("/api/members/:id", requireAdmin, async (req, res) => {
     if (store.members.some(m => m.id !== member.id && m.email && m.email.toLowerCase() === email)) {
       return res.status(409).json({ error: "That email is already in use" });
     }
+    if (member.email !== email) {
+      // A link sent to the old address must not work for the new one.
+      delete member.inviteTokenHash;
+      delete member.inviteExpiresAt;
+    }
     member.email = email;
   }
-  if (req.body.password !== undefined) {
-    // Admin-set password -- this is how a member's password gets "recovered"
-    // since there's no email-sending capability to run a self-serve reset flow.
+  if (req.body.password !== undefined && req.body.password !== "") {
+    // Admin-set password. Sending a reset link (POST /api/members/:id/invite) is the better way.
     const password = String(req.body.password);
-    if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
-    member.passwordHash = bcrypt.hashSync(password, 10);
+    const problem = security.passwordProblem(password, member);
+    if (problem) return res.status(400).json({ error: problem });
+    member.passwordHash = bcrypt.hashSync(password, 12);
+    delete member.inviteTokenHash;
+    delete member.inviteExpiresAt;
   }
   if (req.body.role !== undefined) {
     const nextRole = req.body.role === "admin" ? "admin" : "member";
@@ -596,6 +714,8 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
   }
 
   const dueDate = req.body.dueDate !== undefined ? String(req.body.dueDate) : "";
+  const pts = parsePoints(req.body.points);
+  if (pts.error) return res.status(400).json({ error: pts.error });
 
   const siblingCount = store.tasks.filter(t => t.groupId === group.id && t.parentId === parentId).length;
   const task = {
@@ -609,6 +729,8 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     dueDate,
     start: "",
     end: "",
+    points: pts.value,
+    pointsEarned: null,
     completedAt: null,
     order: siblingCount,
     createdAt: Date.now()
@@ -665,6 +787,24 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
       }
       task.status = req.body.status;
       statusChanged = true;
+    }
+    if (req.body.points !== undefined) {
+      const pts = parsePoints(req.body.points);
+      if (pts.error) return res.status(400).json({ error: pts.error });
+      task.points = pts.value;
+      if (task.pointsEarned != null && (task.points === null || task.pointsEarned > task.points)) {
+        task.pointsEarned = task.points;   // never keep more earned than allotted
+      }
+    }
+    if (req.body.pointsEarned !== undefined) {
+      const pts = parsePoints(req.body.pointsEarned);
+      if (pts.error) return res.status(400).json({ error: pts.error });
+      if (pts.value !== null) {
+        if (task.status !== "done") return res.status(400).json({ error: "Mark the task Done before giving points" });
+        if (task.points == null) return res.status(400).json({ error: "Set the points for this task first" });
+        if (pts.value > task.points) return res.status(400).json({ error: `This task is worth ${task.points} points, so the score cannot be higher` });
+      }
+      task.pointsEarned = pts.value;
     }
   } else {
     const keys = Object.keys(req.body);

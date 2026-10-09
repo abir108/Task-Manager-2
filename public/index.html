@@ -26,6 +26,36 @@
 
     <p class="login-error" id="login-error"></p>
     <button class="btn btn-primary login-submit" type="submit">Log in</button>
+    <p class="login-help">Forgot your password? Ask your admin to send you a new link.</p>
+  </form>
+</div>
+
+<!-- ===== SET PASSWORD (opened from an invitation email) ===== -->
+<div class="login-screen hidden" id="invite-screen">
+  <form class="login-card" id="invite-form" autocomplete="off">
+    <div class="brand login-brand">
+      <img class="login-logo" src="logo.png" alt="CloudTech Bookkeeping">
+      <span class="org-name">Project Manager</span>
+    </div>
+    <h2 class="invite-title" id="invite-title">Set your password</h2>
+    <p class="subtitle" id="invite-subtitle">Checking your link…</p>
+
+    <div id="invite-fields" class="u-hidden">
+      <label>Email
+        <input type="email" id="invite-email" readonly tabindex="-1" autocomplete="username">
+      </label>
+      <label>New password
+        <input type="password" id="invite-password" autocomplete="new-password" placeholder="At least 10 characters" required>
+      </label>
+      <label>Confirm password
+        <input type="password" id="invite-password2" autocomplete="new-password" placeholder="Type it again" required>
+      </label>
+      <p class="invite-rules">Use at least 10 characters with letters and numbers. Avoid common passwords.</p>
+    </div>
+
+    <p class="login-error" id="invite-error"></p>
+    <button class="btn btn-primary login-submit u-hidden" id="invite-submit" type="submit">Set password &amp; sign in</button>
+    <p class="login-help"><a href="#" id="invite-back">Back to sign in</a></p>
   </form>
 </div>
 
@@ -194,6 +224,7 @@
             <div class="ph-item"><span class="ph-label">Member since</span><span class="ph-value" id="ph-since">—</span></div>
             <div class="ph-item"><span class="ph-label">Projects</span><span class="ph-value" id="ph-projects">—</span></div>
             <div class="ph-item"><span class="ph-label">Open tasks</span><span class="ph-value" id="ph-open">—</span></div>
+            <div class="ph-item"><span class="ph-label">Points earned</span><span class="ph-value" id="ph-points">—</span></div>
             <div class="ph-item"><span class="ph-label">Next deadline</span><span class="ph-value" id="ph-next">—</span></div>
           </div>
         </div>
@@ -283,7 +314,7 @@
         <label>Current password
           <input type="password" id="input-current-password" autocomplete="current-password">
         </label>
-        <label>New password <span class="hint-inline">(at least 6 characters)</span>
+        <label>New password <span class="hint-inline">(at least 10 characters, letters and numbers)</span>
           <input type="password" id="input-new-password" autocomplete="new-password">
         </label>
         <button class="btn btn-ghost" id="btn-change-password">Change password</button>
@@ -514,6 +545,19 @@
     </div>
 
     <div class="td-field">
+      <label>Points</label>
+      <div class="td-points">
+        <label class="td-points-item">Worth
+          <input type="number" id="td-points" min="0" max="1000" step="0.5" placeholder="e.g. 10">
+        </label>
+        <label class="td-points-item">Scored
+          <input type="number" id="td-points-earned" min="0" max="1000" step="0.5" placeholder="after Done">
+        </label>
+      </div>
+      <p class="td-points-hint" id="td-points-hint"></p>
+    </div>
+
+    <div class="td-field">
       <label>Owner</label>
       <div id="td-owner-list" class="td-owner-list"></div>
     </div>
@@ -613,9 +657,11 @@
     <label>Email
       <input type="email" id="input-member-email" placeholder="name@company.com">
     </label>
-    <label id="label-member-password">Password
-      <input type="text" id="input-member-password" placeholder="At least 6 characters">
+    <label id="label-member-password">Password <span class="hint-inline">(optional)</span>
+      <input type="text" id="input-member-password" placeholder="Leave blank to email an invitation" autocomplete="off">
     </label>
+    <p class="invite-modal-note" id="member-invite-note">With no password, they get an email with a link to choose their own. Passwords need 10+ characters with letters and numbers.</p>
+    <button type="button" class="btn btn-ghost invite-edit-btn u-hidden" id="btn-member-send-link">Email a password-setup link instead</button>
     <label class="checkbox-label">
       <input type="checkbox" id="input-member-admin">
       Grant admin access
@@ -624,6 +670,21 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" data-close="modal-member">Cancel</button>
       <button class="btn btn-primary" id="btn-save-member">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-invite-link">
+  <div class="modal">
+    <h2 id="invite-link-title">Invitation</h2>
+    <p class="subtitle" id="invite-link-status"></p>
+    <label>Setup link
+      <input type="text" id="invite-link-url" readonly>
+    </label>
+    <p class="invite-modal-note">Anyone with this link can set the password for this account, so send it only to the member. It works once and expires in 48 hours.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btn-invite-copy">Copy link</button>
+      <button class="btn btn-primary" data-close="modal-invite-link">Done</button>
     </div>
   </div>
 </div>

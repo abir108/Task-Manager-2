@@ -3346,6 +3346,57 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
 .nf-msg.ok { color: #2FD27F; }
 .nf-msg.bad { color: var(--high); }
 
+/* ---------- Invitations, points ---------- */
+/* long titles shrink with an ellipsis so the sub-count and points chips stay visible */
+.kl-col-task > .kl-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.login-help { margin: 14px 0 0; text-align: center; font-size: 12.5px; color: #8EA3CF; }
+.login-help a { color: var(--sky); text-decoration: none; }
+.login-help a:hover { text-decoration: underline; }
+.invite-title { margin: 6px 0 4px; text-align: center; font-size: 20px; color: #EAF1FF; }
+.invite-rules { margin: -4px 0 12px; font-size: 12px; color: #8EA3CF; }
+.login-screen .login-card input[readonly] { opacity: .75; cursor: default; }
+.invite-modal-note { font-size: 12.5px; color: var(--text-muted); margin: 4px 0 12px; line-height: 1.5; }
+.invite-edit-btn { margin-bottom: 8px; }
+.invite-pill {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.invite-pill.invited { background: rgba(67, 130, 223, 0.16); color: #4382DF; }
+.invite-pill.expired { background: rgba(242, 153, 74, 0.18); color: #d9822b; }
+
+.pts-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 20px;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.pts-badge.scored { color: #d9a21b; background: rgba(240, 190, 60, 0.16); border-color: rgba(240, 190, 60, 0.4); }
+.pts-badge.pts-card { margin: 6px 0 0; align-self: flex-start; }
+.kpi-chip.kpi-points { background: rgba(240, 190, 60, 0.16); color: #d9a21b; }
+.kpi-points-text { font-weight: 700; color: #d9a21b; }
+.kpi-vitals { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .kpi-vitals { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .kpi-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .kpi-vitals { grid-template-columns: 1fr; } }
+.vital-points .vital-value { color: #d9a21b; }
+.td-points { display: flex; gap: 12px; }
+.td-points-item { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.td-points-item input { width: 100%; }
+.td-points-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-muted); min-height: 0; }
+.td-points-hint:empty { display: none; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .app { flex-direction: column; }

@@ -23,8 +23,23 @@ const DEFAULT_CATEGORY_LABELS = {
   archived: "Archived"
 };
 
-const ADMIN_EMAIL = "cloudtechacademybd@gmail.com";
-const ADMIN_PASSWORD = "Cloudtech2026";
+/* No password is stored in the code. A first-time or lockout-recovery admin login gets
+   ADMIN_PASSWORD from the environment/.env when set, otherwise a random one that is
+   printed once in the server log. */
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "cloudtechacademybd@gmail.com").trim().toLowerCase();
+function makeAdminPassword() {
+  const fromEnv = (process.env.ADMIN_PASSWORD || "").trim();
+  if (fromEnv) return { password: fromEnv, generated: false };
+  return { password: crypto.randomBytes(12).toString("base64url"), generated: true };
+}
+function announceAdminLogin(login) {
+  if (login.generated) {
+    console.log(`\nAdmin login created -> email "${ADMIN_EMAIL}", password "${login.password}"`);
+    console.log("This password is shown only now. Log in and change it from Edit Profile.\n");
+  } else {
+    console.log(`\nAdmin login created -> email "${ADMIN_EMAIL}", password taken from ADMIN_PASSWORD. Change it from Edit Profile after logging in.\n`);
+  }
+}
 // Earlier builds seeded this address; it is moved to ADMIN_EMAIL on load.
 const OLD_BOOTSTRAP_EMAIL = "admin@cloudtechaccounting.com";
 
@@ -62,11 +77,18 @@ function normalizeMembers(members) {
     if (m.avatarUrl && !isValidAvatarUrl(m.avatarUrl)) { m.avatarUrl = null; changed = true; }
     if (m.email === undefined) { m.email = null; changed = true; }
     if (m.passwordHash === undefined) { m.passwordHash = null; changed = true; }
+    if (m.inviteTokenHash !== undefined && (typeof m.inviteTokenHash !== "string" || !/^[0-9a-f]{64}$/.test(m.inviteTokenHash))) {
+      delete m.inviteTokenHash; delete m.inviteExpiresAt; changed = true;
+    }
   });
   const grantAdminLogin = (m) => {
+    const login = makeAdminPassword();
     m.email = ADMIN_EMAIL;
-    m.passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
+    m.passwordHash = bcrypt.hashSync(login.password, 12);
+    delete m.inviteTokenHash;
+    delete m.inviteExpiresAt;
     changed = true;
+    announceAdminLogin(login);
   };
   const bootstrapAdmin = members.find(m =>
     m.name === "Admin" && m.role === "admin" && (!m.email || m.email.toLowerCase() === OLD_BOOTSTRAP_EMAIL));
@@ -100,17 +122,17 @@ function load() {
     fs.renameSync(MEMBERS_FILE, MEMBERS_FILE + ".old");
   }
   if (store.members.length === 0) {
+    const login = makeAdminPassword();
     store.members.push({
       id: uid(),
       name: "Admin",
       email: ADMIN_EMAIL,
-      passwordHash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
+      passwordHash: bcrypt.hashSync(login.password, 12),
       role: "admin",
       createdAt: Date.now()
     });
     changed = true;
-    console.log(`\nNo team logins found: created default admin -> email "${ADMIN_EMAIL}", password "${ADMIN_PASSWORD}".`);
-    console.log("Log in and change this password immediately from Edit Profile.\n");
+    announceAdminLogin(login);
   }
 
   if (!store.groups) store.groups = [];
@@ -154,6 +176,8 @@ function load() {
       t.assigneeIds = t.assigneeId ? [t.assigneeId] : [];
       changed = true;
     }
+    if (t.points === undefined) { t.points = null; changed = true; }
+    if (t.pointsEarned === undefined) { t.pointsEarned = null; changed = true; }
     if (t.completedAt === undefined) {
       t.completedAt = t.status === "done" ? t.createdAt : null;
       changed = true;

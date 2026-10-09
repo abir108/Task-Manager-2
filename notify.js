@@ -265,16 +265,18 @@ async function sendMail(to, subject, text, html) {
   } catch (err) { return fail(err); }
 }
 
-function emailHtml(title, lines, linkUrl) {
+function emailHtml(title, lines, linkUrl, buttonLabel = "Open Task Manager", intro = "") {
   const rows = lines.map(l => `<tr><td style="padding:3px 0;color:#566690;font-size:13px">${escHtml(l[0])}</td><td style="padding:3px 0 3px 14px;color:#14214F;font-size:14px;font-weight:600">${escHtml(l[1])}</td></tr>`).join("");
   const button = linkUrl
-    ? `<p style="margin:22px 0 0"><a href="${escHtml(linkUrl)}" style="background:#4382DF;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:10px 20px;border-radius:8px;display:inline-block">Open Task Manager</a></p>`
+    ? `<p style="margin:22px 0 0"><a href="${escHtml(linkUrl)}" style="background:#4382DF;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:10px 20px;border-radius:8px;display:inline-block">${escHtml(buttonLabel)}</a></p>`
     : "";
+  const introHtml = intro ? `<p style="margin:0 0 14px;color:#33415F;font-size:14px;line-height:1.5">${escHtml(intro)}</p>` : "";
   return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;border:1px solid #DCE8EB;border-radius:14px;overflow:hidden">
   <div style="background:#112E81;color:#ffffff;padding:16px 22px;font-size:16px;font-weight:700">CloudTech Bookkeeping</div>
   <div style="padding:22px">
     <div style="font-size:18px;font-weight:700;color:#14214F;margin-bottom:12px">${escHtml(title)}</div>
-    <table style="border-collapse:collapse">${rows}</table>${button}
+    ${introHtml}
+    ${rows ? `<table style="border-collapse:collapse">${rows}</table>` : ""}${button}
   </div></div>`;
 }
 
@@ -354,6 +356,26 @@ function logResults(event, who, results) {
   });
 }
 
+/* Invitation / password-setup email. Returns a result object, or null when email is not set up. */
+async function sendInvite({ member, link, kind, invitedBy, hours }) {
+  const isReset = kind === "reset";
+  const who = invitedBy ? oneLine(invitedBy.name) : "An admin";
+  const subject = isReset ? "Set a new password for CloudTech Task Manager" : "You have been invited to CloudTech Task Manager";
+  const title = isReset ? "Set a new password" : `Welcome, ${oneLine(member.name)}`;
+  const intro = isReset
+    ? `${who} sent you a link to set a new password. The link works once and expires in ${hours} hours.`
+    : `${who} added you to CloudTech Task Manager. Choose your password to start. The link works once and expires in ${hours} hours.`;
+  const text = `${intro}
+
+Your login email: ${member.email}
+
+Set your password: ${link}
+
+If you were not expecting this, you can ignore this email.`;
+  const html = emailHtml(title, [["Login email", member.email]], link, "Set your password", intro);
+  return sendMail(member.email, subject, text, html);
+}
+
 /* Test from the Team page: tries every configured route and reports each result. */
 async function sendTest(admin) {
   const c = config();
@@ -372,4 +394,4 @@ async function sendTest(admin) {
   return results;
 }
 
-module.exports = { status, publicSettings, updateSettings, taskAssigned, statusChanged, sendTest };
+module.exports = { sendInvite, appBaseUrl: () => config().appUrl, status, publicSettings, updateSettings, taskAssigned, statusChanged, sendTest };
