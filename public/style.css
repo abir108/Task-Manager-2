@@ -3307,6 +3307,45 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
 .notify-result.bad > span:first-child { color: var(--high); font-weight: 700; }
 .notify-result span:last-child { color: var(--text-muted); overflow-wrap: anywhere; }
 
+/* settings form inside the Notifications panel */
+.notify-form { margin-top: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-subtle); }
+.notify-form > summary {
+  cursor: pointer;
+  padding: 13px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  list-style: none;
+}
+.notify-form > summary::-webkit-details-marker { display: none; }
+.notify-form > summary::after { content: "\25BE"; float: right; color: var(--text-muted); transition: transform .15s; }
+.notify-form[open] > summary::after { transform: rotate(180deg); }
+.notify-form[open] > summary { border-bottom: 1px solid var(--border); }
+.nf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px 26px; padding: 16px; }
+.nf-section h4 { margin: 0 0 10px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.nf-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.nf-label { font-size: 13px; font-weight: 600; color: var(--text); }
+.nf-label em { font-style: normal; font-weight: 400; color: var(--text-muted); font-size: 12px; margin-left: 4px; }
+.nf-saved { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: #2FD27F; background: rgba(47, 210, 127, 0.14); border-radius: 20px; padding: 2px 8px; margin-left: 6px; }
+.nf-field input[type="text"], .nf-field input[type="password"], .nf-field input[type="number"] {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-family: inherit;
+  background: var(--card-bg);
+  color: var(--text);
+}
+.nf-remove { align-self: flex-start; background: none; border: none; padding: 0; font-size: 12px; color: var(--high); cursor: pointer; }
+.nf-remove:hover { text-decoration: underline; }
+.nf-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); margin: 6px 0; cursor: pointer; }
+.nf-note { font-size: 12.5px; color: var(--text-muted); margin: 6px 0 0; }
+.nf-actions { display: flex; align-items: center; gap: 14px; padding: 4px 16px 16px; flex-wrap: wrap; }
+.nf-msg { font-size: 13px; color: var(--text-muted); }
+.nf-msg.ok { color: #2FD27F; }
+.nf-msg.bad { color: var(--high); }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .app { flex-direction: column; }

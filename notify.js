@@ -1,5 +1,5 @@
 /* Task notifications over Slack and email.
-   Nothing happens until it is configured (see the Notifications panel on the Team page
+   Nothing happens until it is configured (Notifications panel on the Team page,
    or .env.example). A failed notification is logged and never breaks the request that
    triggered it.
 
@@ -7,28 +7,140 @@
      taskAssigned   -> each newly assigned member: Slack DM (found by email) and/or email
      statusChanged  -> admins, when a *member* changes a task's status: Slack (webhook,
                        channel or DM) and optionally email (NOTIFY_ADMIN_EMAIL=1) */
+const fs = require("fs");
+const path = require("path");
 const { store } = require("./db");
 
 const env = key => (process.env[key] || "").trim();
 const SLACK_TIMEOUT_MS = 8000;
 
+/* ---------- settings ----------
+   Saved from the Team page into data/notify-settings.json. That file lives next to the
+   data but outside store.json, so backups never contain the secrets and a restore never
+   overwrites them. Values saved here win; anything left empty falls back to the server's
+   environment / .env. Secrets are never sent back to the browser. */
+const SETTINGS_FILE = path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "notify-settings.json");
+const ENV_NAMES = {
+  slackBotToken: "SLACK_BOT_TOKEN",
+  slackWebhookUrl: "SLACK_WEBHOOK_URL",
+  slackAdminChannel: "SLACK_ADMIN_CHANNEL",
+  smtpHost: "SMTP_HOST",
+  smtpPort: "SMTP_PORT",
+  smtpUser: "SMTP_USER",
+  smtpPass: "SMTP_PASS",
+  smtpFrom: "SMTP_FROM",
+  smtpAllowSelfSigned: "SMTP_ALLOW_SELF_SIGNED",
+  notifyAdminEmail: "NOTIFY_ADMIN_EMAIL",
+  appUrl: "APP_URL"
+};
+const SECRET_KEYS = ["slackBotToken", "slackWebhookUrl", "smtpPass"];
+const BOOL_KEYS = ["smtpAllowSelfSigned", "notifyAdminEmail"];
+
+let saved = {};
+try { saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) || {}; } catch (e) { saved = {}; }
+
+function get(key) {
+  if (BOOL_KEYS.includes(key)) {
+    return saved[key] !== undefined ? !!saved[key] : env(ENV_NAMES[key]) === "1";
+  }
+  const own = saved[key];
+  if (own !== undefined && own !== "") return String(own);
+  return key === "smtpPass" ? (process.env.SMTP_PASS || "") : env(ENV_NAMES[key]);
+}
+
 function config() {
-  const smtpPort = Number(env("SMTP_PORT")) || 587;
+  const smtpPort = Number(get("smtpPort")) || 587;
   return {
-    slackToken: env("SLACK_BOT_TOKEN"),
-    slackWebhook: env("SLACK_WEBHOOK_URL"),
-    slackAdminChannel: env("SLACK_ADMIN_CHANNEL"),
+    slackToken: get("slackBotToken"),
+    slackWebhook: get("slackWebhookUrl"),
+    slackAdminChannel: get("slackAdminChannel"),
     slackApi: (env("SLACK_API_URL") || "https://slack.com/api").replace(/\/+$/, ""),
-    smtpHost: env("SMTP_HOST"),
+    smtpHost: get("smtpHost"),
     smtpPort,
     smtpSecure: env("SMTP_SECURE") ? env("SMTP_SECURE").toLowerCase() === "true" : smtpPort === 465,
-    smtpUser: env("SMTP_USER"),
-    smtpPass: process.env.SMTP_PASS || "",
-    smtpFrom: env("SMTP_FROM") || env("SMTP_USER"),
-    smtpSelfSigned: env("SMTP_ALLOW_SELF_SIGNED") === "1",
-    adminEmail: env("NOTIFY_ADMIN_EMAIL") === "1",
-    appUrl: env("APP_URL").replace(/\/+$/, "")
+    smtpUser: get("smtpUser"),
+    smtpPass: get("smtpPass"),
+    smtpFrom: get("smtpFrom") || get("smtpUser"),
+    smtpSelfSigned: get("smtpAllowSelfSigned"),
+    adminEmail: get("notifyAdminEmail"),
+    appUrl: get("appUrl").replace(/\/+$/, "")
   };
+}
+
+/* What the browser may see: plain fields as-is, secrets only as "is it set". */
+function publicSettings() {
+  const fromEnv = Object.keys(ENV_NAMES).filter(k => {
+    const own = saved[k];
+    const hasOwn = BOOL_KEYS.includes(k) ? own !== undefined : (own !== undefined && own !== "");
+    return !hasOwn && !!process.env[ENV_NAMES[k]];
+  });
+  return {
+    slackBotTokenSet: !!get("slackBotToken"),
+    slackWebhookSet: !!get("slackWebhookUrl"),
+    smtpPassSet: !!get("smtpPass"),
+    slackAdminChannel: get("slackAdminChannel"),
+    smtpHost: get("smtpHost"),
+    smtpPort: get("smtpPort"),
+    smtpUser: get("smtpUser"),
+    smtpFrom: get("smtpFrom"),
+    smtpAllowSelfSigned: get("smtpAllowSelfSigned"),
+    notifyAdminEmail: get("notifyAdminEmail"),
+    appUrl: get("appUrl"),
+    fromEnv
+  };
+}
+
+function badInput(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+}
+
+const VALIDATORS = {
+  slackBotToken: [/^xox[bpa]-[A-Za-z0-9-]{10,200}$/, "That does not look like a Slack bot token (it starts with xoxb-)."],
+  slackWebhookUrl: [/^https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/_-]{10,200}$/, "That does not look like a Slack webhook URL (https://hooks.slack.com/services/...)."],
+  slackAdminChannel: [/^[#@]?[A-Za-z0-9._-]{1,80}$/, "Channel looks wrong. Use a name like #task-updates or a channel ID."],
+  smtpHost: [/^[A-Za-z0-9.-]{1,253}$/, "Email server host looks wrong (example: smtp.gmail.com)."],
+  smtpUser: [/^[^\r\n]{1,200}$/, "Email username is not valid."],
+  smtpPass: [/^[^\r\n]{1,500}$/, "Email password is not valid."],
+  smtpFrom: [/^[^\r\n]{1,200}$/, "The From address is not valid."],
+  appUrl: [/^https?:\/\/[^\s]{3,200}$/, "Site address must start with http:// or https://"]
+};
+
+function updateSettings(body) {
+  const next = { ...saved };
+
+  (Array.isArray(body.clear) ? body.clear : []).forEach(key => { if (ENV_NAMES[key]) delete next[key]; });
+
+  Object.keys(VALIDATORS).forEach(key => {
+    if (body[key] === undefined || body[key] === null) return;
+    const value = String(body[key]).trim();
+    if (value === "") {
+      if (!SECRET_KEYS.includes(key)) delete next[key];   // blank secret = keep what is saved
+      return;
+    }
+    if (!VALIDATORS[key][0].test(value)) throw badInput(VALIDATORS[key][1]);
+    next[key] = value;
+  });
+
+  if (body.smtpPort !== undefined && body.smtpPort !== null) {
+    const raw = String(body.smtpPort).trim();
+    if (raw === "") delete next.smtpPort;
+    else {
+      const port = Number(raw);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw badInput("Email port must be a number between 1 and 65535.");
+      next.smtpPort = String(port);
+    }
+  }
+
+  BOOL_KEYS.forEach(key => { if (body[key] !== undefined) next[key] = !!body[key]; });
+
+  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+  const tmp = SETTINGS_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, SETTINGS_FILE);
+  saved = next;
+  slackIdCache.clear();
 }
 
 function status() {
@@ -260,4 +372,4 @@ async function sendTest(admin) {
   return results;
 }
 
-module.exports = { status, taskAssigned, statusChanged, sendTest };
+module.exports = { status, publicSettings, updateSettings, taskAssigned, statusChanged, sendTest };

@@ -205,7 +205,7 @@ async function showView(name) {
   if (name === "projects") await renderProjects();
   if (name === "profile") await renderProfilePage();
   if (name === "profile-edit") renderProfileEditPage();
-  if (name === "team") { await renderTeam(); await renderNotifyStatus(); }
+  if (name === "team") { await renderTeam(); await renderNotifyStatus(); await renderNotifySettings(); }
   if (name === "archived") await renderArchivedPage();
   if (name === "report") await renderReportPage();
 }
@@ -1019,6 +1019,96 @@ function openEditMember(m) {
 }
 
 /* ---------- Notifications panel (Team page, admin only) ---------- */
+function notifyField(id, label, value, opts = {}) {
+  const type = opts.secret ? "password" : (opts.type || "text");
+  const placeholder = opts.secret && opts.isSet ? "Saved. Type here only to replace it" : (opts.placeholder || "");
+  return `
+    <label class="nf-field">
+      <span class="nf-label">${label}${opts.hint ? ` <em>${opts.hint}</em>` : ""}${opts.secret && opts.isSet ? ' <b class="nf-saved">Saved</b>' : ""}</span>
+      <input type="${type}" id="nf-${id}" value="${opts.secret ? "" : escapeHtml(value || "")}" placeholder="${escapeHtml(placeholder)}"
+        autocomplete="${opts.secret ? "new-password" : "off"}" spellcheck="false">
+      ${opts.secret && opts.isSet ? `<button type="button" class="nf-remove" data-clear="${id}">Remove saved value</button>` : ""}
+    </label>`;
+}
+
+async function renderNotifySettings() {
+  const box = document.getElementById("notify-settings");
+  let s;
+  try { s = await api("GET", "/api/notifications/settings"); } catch (err) {
+    box.innerHTML = "";
+    return;
+  }
+  const anything = s.slackBotTokenSet || s.slackWebhookSet || s.smtpHost;
+  box.innerHTML = `
+    <details class="notify-form" ${anything ? "" : "open"}>
+      <summary>Connection settings</summary>
+      <div class="nf-grid">
+        <div class="nf-section">
+          <h4>Slack</h4>
+          ${notifyField("slackBotToken", "Bot token", "", { secret: true, isSet: s.slackBotTokenSet, hint: "starts with xoxb-", placeholder: "xoxb-..." })}
+          ${notifyField("slackAdminChannel", "Admin channel", s.slackAdminChannel, { hint: "where status updates are posted", placeholder: "#task-updates" })}
+          ${notifyField("slackWebhookUrl", "or Webhook URL", "", { secret: true, isSet: s.slackWebhookSet, hint: "instead of a channel", placeholder: "https://hooks.slack.com/services/..." })}
+        </div>
+        <div class="nf-section">
+          <h4>Email</h4>
+          ${notifyField("smtpHost", "Mail server", s.smtpHost, { placeholder: "smtp.gmail.com" })}
+          ${notifyField("smtpPort", "Port", s.smtpPort, { type: "number", placeholder: "587" })}
+          ${notifyField("smtpUser", "Username", s.smtpUser, { placeholder: "you@company.com" })}
+          ${notifyField("smtpPass", "Password", "", { secret: true, isSet: s.smtpPassSet, hint: "Gmail needs an App Password" })}
+          ${notifyField("smtpFrom", "From", s.smtpFrom, { placeholder: "CloudTech Bookkeeping <you@company.com>" })}
+          <label class="nf-check"><input type="checkbox" id="nf-notifyAdminEmail" ${s.notifyAdminEmail ? "checked" : ""}> Also email admins when a member changes a status</label>
+          <label class="nf-check"><input type="checkbox" id="nf-smtpAllowSelfSigned" ${s.smtpAllowSelfSigned ? "checked" : ""}> My mail server uses a self-signed certificate</label>
+        </div>
+        <div class="nf-section">
+          <h4>Links</h4>
+          ${notifyField("appUrl", "Site address", s.appUrl, { hint: "put in every message", placeholder: "https://tasks.yourcompany.com" })}
+          ${s.fromEnv.length ? `<p class="nf-note">Some values are coming from the server's .env file. Anything you save here takes priority.</p>` : ""}
+        </div>
+      </div>
+      <div class="nf-actions">
+        <button type="button" class="btn btn-primary btn-small" id="btn-notify-save">Save settings</button>
+        <span id="notify-save-msg" class="nf-msg"></span>
+      </div>
+    </details>`;
+
+  box.querySelectorAll(".nf-remove").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Remove this saved value?")) return;
+    await saveNotifySettings({ clear: [btn.dataset.clear] }, "Removed");
+  }));
+  document.getElementById("btn-notify-save").addEventListener("click", () => {
+    const val = id => document.getElementById("nf-" + id).value;
+    saveNotifySettings({
+      slackBotToken: val("slackBotToken"),
+      slackAdminChannel: val("slackAdminChannel"),
+      slackWebhookUrl: val("slackWebhookUrl"),
+      smtpHost: val("smtpHost"),
+      smtpPort: val("smtpPort"),
+      smtpUser: val("smtpUser"),
+      smtpPass: val("smtpPass"),
+      smtpFrom: val("smtpFrom"),
+      appUrl: val("appUrl"),
+      notifyAdminEmail: document.getElementById("nf-notifyAdminEmail").checked,
+      smtpAllowSelfSigned: document.getElementById("nf-smtpAllowSelfSigned").checked
+    }, "Saved");
+  });
+}
+
+async function saveNotifySettings(body, okText) {
+  const msg = document.getElementById("notify-save-msg");
+  if (msg) { msg.className = "nf-msg"; msg.textContent = "Saving…"; }
+  try {
+    await api("PUT", "/api/notifications/settings", body);
+    await renderNotifyStatus();
+    await renderNotifySettings();
+    const again = document.getElementById("notify-save-msg");
+    const form = document.querySelector(".notify-form");
+    if (form) form.open = true;
+    if (again) { again.className = "nf-msg ok"; again.textContent = okText + ". Use \"Send test to me\" to check it."; }
+  } catch (err) {
+    if (msg) { msg.className = "nf-msg bad"; msg.textContent = err.message; }
+  }
+}
+
 async function renderNotifyStatus() {
   const box = document.getElementById("notify-status");
   const resultBox = document.getElementById("notify-test-result");
@@ -1040,9 +1130,9 @@ async function renderNotifyStatus() {
     : "Sends a Slack DM to each admin";
   const noEmail = members.filter(m => !m.email).length;
   box.innerHTML =
-    row("Slack · member messages", st.slack.memberDms, "Members get a DM when a task is assigned to them", "Add SLACK_BOT_TOKEN to message members") +
-    row("Slack · admin updates", !!adminTarget, adminText, "Add SLACK_BOT_TOKEN, or SLACK_WEBHOOK_URL, to get status updates") +
-    row("Email", st.email.configured, `Sending through ${escapeHtml(st.email.host)}${st.email.adminCopies ? " (admins also get status emails)" : ""}`, "Add SMTP_HOST, SMTP_USER, SMTP_PASS and SMTP_FROM") +
+    row("Slack · member messages", st.slack.memberDms, "Members get a DM when a task is assigned to them", "Add the Slack bot token in the settings below") +
+    row("Slack · admin updates", !!adminTarget, adminText, "Add the Slack bot token (and a channel) or a webhook URL below") +
+    row("Email", st.email.configured, `Sending through ${escapeHtml(st.email.host)}${st.email.adminCopies ? " (admins also get status emails)" : ""}`, "Add the mail server, username, password and From address below") +
     (noEmail ? `<p class="kpi-note">${noEmail} member${noEmail === 1 ? " has" : "s have"} no email yet, so they cannot be notified.</p>` : "");
 }
 

@@ -848,6 +848,19 @@ app.get("/api/notifications/status", requireAdmin, (req, res) => {
   res.json(notify.status());
 });
 
+app.get("/api/notifications/settings", requireAdmin, (req, res) => {
+  res.json(notify.publicSettings());
+});
+
+app.put("/api/notifications/settings", requireAdmin, (req, res) => {
+  try {
+    notify.updateSettings(req.body || {});
+    res.json(notify.publicSettings());
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || "Could not save settings" });
+  }
+});
+
 app.post("/api/notifications/test", requireAdmin, async (req, res) => {
   try {
     res.json({ results: await notify.sendTest(req.member) });
