@@ -3347,6 +3347,16 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
 .nf-msg.bad { color: var(--high); }
 
 /* ---------- Invitations, points ---------- */
+/* product name under the logo: larger and centred */
+.brand .org-name, .login-brand .org-name {
+  align-self: center;
+  width: 100%;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  margin: 6px 0 0 0;
+}
 .login-card .pw-wrap { position: relative; display: block; margin-top: 6px; }
 .login-card .pw-wrap input { margin-top: 0; padding-right: 44px; }
 .pw-toggle {
