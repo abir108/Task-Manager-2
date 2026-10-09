@@ -272,7 +272,7 @@ function emailHtml(title, lines, linkUrl, buttonLabel = "Open CloudTask", intro 
     : "";
   const introHtml = intro ? `<p style="margin:0 0 14px;color:#33415F;font-size:14px;line-height:1.5">${escHtml(intro)}</p>` : "";
   return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;border:1px solid #DCE8EB;border-radius:14px;overflow:hidden">
-  <div style="background:#112E81;color:#ffffff;padding:16px 22px;font-size:16px;font-weight:700">CloudTask</div>
+  <div style="background:#112E81;color:#ffffff;padding:16px 22px;font-size:16px;font-weight:700">CloudTech Bookkeeping</div>
   <div style="padding:22px">
     <div style="font-size:18px;font-weight:700;color:#14214F;margin-bottom:12px">${escHtml(title)}</div>
     ${introHtml}

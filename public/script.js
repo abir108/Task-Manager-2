@@ -1144,7 +1144,7 @@ async function renderNotifySettings() {
           ${notifyField("smtpPort", "Port", s.smtpPort, { type: "number", placeholder: "587" })}
           ${notifyField("smtpUser", "Username", s.smtpUser, { placeholder: "you@company.com" })}
           ${notifyField("smtpPass", "Password", "", { secret: true, isSet: s.smtpPassSet, hint: "Gmail needs an App Password" })}
-          ${notifyField("smtpFrom", "From", s.smtpFrom, { placeholder: "CloudTask <you@company.com>" })}
+          ${notifyField("smtpFrom", "From", s.smtpFrom, { placeholder: "CloudTech Bookkeeping <you@company.com>" })}
           <label class="nf-check"><input type="checkbox" id="nf-notifyAdminEmail" ${s.notifyAdminEmail ? "checked" : ""}> Also email admins when a member changes a status</label>
           <label class="nf-check"><input type="checkbox" id="nf-smtpAllowSelfSigned" ${s.smtpAllowSelfSigned ? "checked" : ""}> My mail server uses a self-signed certificate</label>
         </div>
