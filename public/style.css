@@ -3347,6 +3347,26 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
 .nf-msg.bad { color: var(--high); }
 
 /* ---------- Invitations, points ---------- */
+.login-card .pw-wrap { position: relative; display: block; margin-top: 6px; }
+.login-card .pw-wrap input { margin-top: 0; padding-right: 44px; }
+.pw-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: #8EA3CF;
+  cursor: pointer;
+}
+.pw-toggle:hover { color: #EAF1FF; background: rgba(170, 204, 214, 0.12); }
+.pw-toggle:focus-visible { outline: 2px solid #4382DF; outline-offset: 1px; }
 /* long titles shrink with an ellipsis so the sub-count and points chips stay visible */
 .kl-col-task > .kl-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .login-help { margin: 14px 0 0; text-align: center; font-size: 12.5px; color: #8EA3CF; }

@@ -114,6 +114,33 @@ async function api(method, url, body) {
   return data;
 }
 
+/* ---------- Show/hide password (eye button on the sign-in and invitation fields) ---------- */
+const ICON_EYE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICON_EYE_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a19.8 19.8 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c7 0 11 8 11 8a19.9 19.9 0 0 1-3.17 4.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+function addPasswordToggle(input) {
+  if (!input || input.parentElement.classList.contains("pw-wrap")) return;
+  const wrap = document.createElement("span");
+  wrap.className = "pw-wrap";
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "pw-toggle";
+  btn.title = "Show password";
+  btn.setAttribute("aria-label", "Show password");
+  btn.innerHTML = ICON_EYE;
+  btn.addEventListener("click", () => {
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.innerHTML = show ? ICON_EYE_OFF : ICON_EYE;
+    btn.title = btn.ariaLabel = show ? "Hide password" : "Show password";
+    input.focus();
+  });
+  wrap.appendChild(btn);
+}
+["login-password", "invite-password", "invite-password2"].forEach(id => addPasswordToggle(document.getElementById(id)));
+
 /* ---------- Login / session ---------- */
 function showLogin() {
   document.getElementById("login-screen").classList.remove("hidden");
@@ -147,6 +174,7 @@ document.getElementById("btn-logout").addEventListener("click", async () => {
   currentBoardProjectId = null;
   document.getElementById("login-email").value = "";
   document.getElementById("login-password").value = "";
+  document.getElementById("login-password").type = "password";
   document.body.classList.remove("role-member");
   showLogin();
 });
