@@ -64,7 +64,7 @@ function avatarHtml(entity, extraStyle) {
   if (!entity) return "";
   const style = extraStyle || "";
   if (entity.avatarUrl) {
-    return `<div class="avatar" style="overflow:hidden;background:#e4e6f0;${style}" title="${escapeHtml(entity.name)}"><img src="${entity.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
+    return `<div class="avatar" style="overflow:hidden;background:#e4e6f0;${style}" title="${escapeHtml(entity.name)}"><img src="${escapeHtml(entity.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
   }
   return `<div class="avatar" style="background:${colorFor(entity.id)};${style}" title="${escapeHtml(entity.name)}">${initialsOf(entity.name)}</div>`;
 }
@@ -157,7 +157,7 @@ function updateSidebarUserCard() {
   const avatarEl = document.getElementById("current-user-avatar");
   if (me.avatarUrl) {
     avatarEl.style.background = "";
-    avatarEl.innerHTML = `<img src="${me.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">`;
+    avatarEl.innerHTML = `<img src="${escapeHtml(me.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">`;
   } else {
     avatarEl.style.background = colorFor(me.id);
     avatarEl.textContent = initialsOf(me.name);
@@ -826,7 +826,7 @@ function resetAvatarPicker(currentUrl, targetId) {
   const preview = document.getElementById(avatarPickerTarget);
   if (currentUrl) {
     preview.style.background = "";
-    preview.innerHTML = `<img src="${currentUrl}" alt="">`;
+    preview.innerHTML = `<img src="${escapeHtml(currentUrl)}" alt="">`;
   } else {
     preview.style.background = "";
     preview.textContent = "?";

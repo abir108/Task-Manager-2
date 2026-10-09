@@ -6,7 +6,7 @@ const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
-const { store, save, uid, recomputeProjectCategory, syncParentFromSubtasks, normalizeMembers, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
+const { store, save, uid, recomputeProjectCategory, syncParentFromSubtasks, normalizeMembers, isValidAvatarUrl, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
 const notify = require("./notify");
 
 const logNotifyError = err => console.warn("[notify]", err && err.message ? err.message : err);
@@ -81,12 +81,6 @@ function publicMember(m) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const MAX_AVATAR_LENGTH = 400000; // ~290KB decoded, generous for a small profile photo
-
-function isValidAvatarUrl(v) {
-  return typeof v === "string" && v.startsWith("data:image/") && v.length <= MAX_AVATAR_LENGTH;
-}
-
 function projectVisible(project, member) {
   if (member.role === "admin") return true;
   return project.memberIds.includes(member.id);
@@ -101,7 +95,7 @@ function sanitizeInstructionsHtml(html) {
     .slice(0, MAX_INSTRUCTIONS_LENGTH)
     .replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, "")
     .replace(/<(script|style|iframe|object|embed)[^>]*\/?>/gi, "")
-    .replace(/\son\w+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, "")
+    .replace(/[\s\/"'`]on\w+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, " ")
     .replace(/javascript:/gi, "");
 }
 

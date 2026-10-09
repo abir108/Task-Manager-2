@@ -44,6 +44,14 @@ function emptyStore() {
   };
 }
 
+/* A profile picture is stored as a data URL and later pasted into the page, so only a plain
+   base64 image is accepted -- no quotes or other characters that could break out of the attribute. */
+const MAX_AVATAR_LENGTH = 400000; // ~290KB decoded, generous for a small profile photo
+const AVATAR_RE = /^data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+\/]+={0,2}$/;
+function isValidAvatarUrl(v) {
+  return typeof v === "string" && v.length <= MAX_AVATAR_LENGTH && AVATAR_RE.test(v);
+}
+
 /* Login is email + password only. The original Admin (legacy PIN only, or
    seeded with the old bootstrap email) gets the real admin email and initial
    password once. If, after that, no admin could log in at all, the first admin
@@ -51,6 +59,7 @@ function emptyStore() {
 function normalizeMembers(members) {
   let changed = false;
   members.forEach(m => {
+    if (m.avatarUrl && !isValidAvatarUrl(m.avatarUrl)) { m.avatarUrl = null; changed = true; }
     if (m.email === undefined) { m.email = null; changed = true; }
     if (m.passwordHash === undefined) { m.passwordHash = null; changed = true; }
   });
@@ -235,4 +244,4 @@ function recomputeProjectCategory(projectId, s = store) {
   }
 }
 
-module.exports = { store, save, uid, recomputeProjectCategory, syncParentFromSubtasks, normalizeMembers, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
+module.exports = { store, save, uid, recomputeProjectCategory, syncParentFromSubtasks, normalizeMembers, isValidAvatarUrl, DEFAULT_CATEGORY_LABELS, DEFAULT_STATUSES, PROJECT_CATEGORIES };
