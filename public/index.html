@@ -304,6 +304,16 @@
 
       <div id="team-grid" class="team-grid"></div>
       <p id="team-empty" class="empty-hint">No teammates yet. Add someone to give them a login.</p>
+
+      <div class="panel notify-panel">
+        <div class="panel-head-row">
+          <h2>Notifications</h2>
+          <button class="btn btn-ghost btn-small" id="btn-notify-test">Send test to me</button>
+        </div>
+        <p class="kpi-note">Members get a Slack message and/or an email when a task is assigned to them. Admins get a Slack message when a member changes a task status. Settings live in the server&#39;s <b>.env</b> file (see <b>.env.example</b>).</p>
+        <div id="notify-status"></div>
+        <div id="notify-test-result"></div>
+      </div>
     </section>
 
     <!-- ===== REPORT VIEW (admin only) ===== -->

@@ -205,7 +205,7 @@ async function showView(name) {
   if (name === "projects") await renderProjects();
   if (name === "profile") await renderProfilePage();
   if (name === "profile-edit") renderProfileEditPage();
-  if (name === "team") await renderTeam();
+  if (name === "team") { await renderTeam(); await renderNotifyStatus(); }
   if (name === "archived") await renderArchivedPage();
   if (name === "report") await renderReportPage();
 }
@@ -1017,6 +1017,53 @@ function openEditMember(m) {
   document.getElementById("btn-save-member").dataset.editId = m.id;
   openModal("modal-member");
 }
+
+/* ---------- Notifications panel (Team page, admin only) ---------- */
+async function renderNotifyStatus() {
+  const box = document.getElementById("notify-status");
+  const resultBox = document.getElementById("notify-test-result");
+  resultBox.innerHTML = "";
+  let st;
+  try { st = await api("GET", "/api/notifications/status"); } catch (err) {
+    box.innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  const row = (title, on, onText, offText) => `
+    <div class="notify-row">
+      <span class="notify-dot ${on ? "on" : "off"}"></span>
+      <div class="notify-text"><b>${title}</b><span>${on ? onText : offText}</span></div>
+      <span class="notify-badge ${on ? "on" : "off"}">${on ? "Connected" : "Not set up"}</span>
+    </div>`;
+  const adminTarget = st.slack.adminTarget;
+  const adminText = adminTarget === "webhook" ? "Posts to your Slack webhook"
+    : adminTarget === "channel" ? "Posts to the admin channel"
+    : "Sends a Slack DM to each admin";
+  const noEmail = members.filter(m => !m.email).length;
+  box.innerHTML =
+    row("Slack · member messages", st.slack.memberDms, "Members get a DM when a task is assigned to them", "Add SLACK_BOT_TOKEN to message members") +
+    row("Slack · admin updates", !!adminTarget, adminText, "Add SLACK_BOT_TOKEN, or SLACK_WEBHOOK_URL, to get status updates") +
+    row("Email", st.email.configured, `Sending through ${escapeHtml(st.email.host)}${st.email.adminCopies ? " (admins also get status emails)" : ""}`, "Add SMTP_HOST, SMTP_USER, SMTP_PASS and SMTP_FROM") +
+    (noEmail ? `<p class="kpi-note">${noEmail} member${noEmail === 1 ? " has" : "s have"} no email yet, so they cannot be notified.</p>` : "");
+}
+
+document.getElementById("btn-notify-test").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-notify-test");
+  const resultBox = document.getElementById("notify-test-result");
+  btn.disabled = true;
+  resultBox.innerHTML = `<p class="kpi-note">Sending…</p>`;
+  try {
+    const data = await api("POST", "/api/notifications/test");
+    resultBox.innerHTML = data.results.map(r => `
+      <div class="notify-result ${r.ok ? "ok" : "bad"}">
+        <span>${r.ok ? "&#10003;" : "&#10007;"}</span>
+        <b>${escapeHtml(r.channel)}</b>
+        <span>${escapeHtml(r.detail)}</span>
+      </div>`).join("");
+  } catch (err) {
+    resultBox.innerHTML = `<div class="notify-result bad"><span>&#10007;</span><b>Test failed</b><span>${escapeHtml(err.message)}</span></div>`;
+  }
+  btn.disabled = false;
+});
 
 async function renderTeam() {
   members = await api("GET", "/api/members");

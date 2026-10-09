@@ -1,3 +1,4 @@
+require("./env");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -6,6 +7,9 @@ const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const { store, save, uid, recomputeProjectCategory, syncParentFromSubtasks, normalizeMembers, DEFAULT_STATUSES, PROJECT_CATEGORIES } = require("./db");
+const notify = require("./notify");
+
+const logNotifyError = err => console.warn("[notify]", err && err.message ? err.message : err);
 
 const app = express();
 const PORT = process.env.PORT || 8790;
@@ -617,6 +621,9 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
   };
   store.tasks.push(task);
   await save();
+  if (assigneeIds.length) {
+    notify.taskAssigned({ task, project, group, actor: req.member, memberIds: assigneeIds }).catch(logNotifyError);
+  }
   res.status(201).json(task);
 });
 
@@ -646,6 +653,8 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
   const group = store.groups.find(g => g.id === task.groupId);
 
   let statusChanged = false;
+  const prevAssignees = new Set(task.assigneeIds || []);
+  const prevStatus = task.status;
 
   if (req.member.role === "admin") {
     if (req.body.title !== undefined) task.title = String(req.body.title);
@@ -689,6 +698,21 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
   }
 
   await save();
+
+  if (req.member.role === "admin" && req.body.assigneeIds !== undefined) {
+    const added = (task.assigneeIds || []).filter(id => !prevAssignees.has(id));
+    if (added.length) {
+      notify.taskAssigned({ task, project, group, actor: req.member, memberIds: added }).catch(logNotifyError);
+    }
+  }
+  if (statusChanged && req.member.role !== "admin" && task.status !== prevStatus) {
+    const labelOf = id => ((group.statuses.find(s => s.id === id)) || {}).label || id;
+    notify.statusChanged({
+      task, project, group, actor: req.member,
+      fromLabel: labelOf(prevStatus), toLabel: labelOf(task.status), isDone: task.status === "done"
+    }).catch(logNotifyError);
+  }
+
   res.json(task);
 });
 
@@ -817,6 +841,19 @@ app.delete("/api/groups/:groupId/statuses/:id", requireAdmin, async (req, res) =
   group.statuses = group.statuses.filter(s => s.id !== req.params.id);
   await save();
   res.json({ ok: true });
+});
+
+/* ---------- Notifications (admin only) ---------- */
+app.get("/api/notifications/status", requireAdmin, (req, res) => {
+  res.json(notify.status());
+});
+
+app.post("/api/notifications/test", requireAdmin, async (req, res) => {
+  try {
+    res.json({ results: await notify.sendTest(req.member) });
+  } catch (err) {
+    res.status(500).json({ error: err.message || "Test failed" });
+  }
 });
 
 /* ---------- Backup / restore (admin only) ---------- */

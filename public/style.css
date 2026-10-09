@@ -3264,6 +3264,49 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
   .vitals-grid { grid-template-columns: 1fr; }
 }
 
+/* =====================================================================
+   Team page: notifications panel
+   ===================================================================== */
+.notify-panel { margin-top: 22px; border-radius: 18px; padding: 20px 22px; }
+.notify-panel h2 { margin: 0; font-size: 17px; }
+.notify-panel .kpi-note { margin: 6px 0 12px; }
+.notify-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.notify-row:last-of-type { border-bottom: none; }
+.notify-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--text-muted); opacity: .5; }
+.notify-dot.on { background: #2FD27F; opacity: 1; box-shadow: 0 0 8px rgba(47, 210, 127, 0.6); }
+.notify-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.notify-text b { font-size: 14px; color: var(--text); }
+.notify-text span { font-size: 12.5px; color: var(--text-muted); }
+.notify-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.notify-badge.on { background: rgba(47, 210, 127, 0.16); color: #2FD27F; }
+.notify-badge.off { background: var(--bg-subtle); color: var(--text-muted); border: 1px solid var(--border); }
+.notify-result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.notify-result.ok { background: rgba(47, 210, 127, 0.12); color: var(--text); }
+.notify-result.bad { background: rgba(239, 106, 106, 0.13); color: var(--text); }
+.notify-result.ok > span:first-child { color: #2FD27F; font-weight: 700; }
+.notify-result.bad > span:first-child { color: var(--high); font-weight: 700; }
+.notify-result span:last-child { color: var(--text-muted); overflow-wrap: anywhere; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .app { flex-direction: column; }
