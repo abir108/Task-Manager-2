@@ -20,6 +20,34 @@ function reportScope() {
   };
 }
 
+/* Where a report gets its data: the Report page (everyone or one member, admin only) or the
+   signed-in person's own profile. */
+function teamReportSource() {
+  const scope = reportScope();
+  return {
+    member: scope.member,
+    memberLabel: scope.memberLabel,
+    periodLabel: scope.periodLabel,
+    members: scope.member ? [scope.member] : reportMembersCache.slice(),
+    tasksFor: memberId => reportMemberTasks(memberId),
+    allTasks: reportAllTasksCache,
+    projects: reportAllProjectsCache
+  };
+}
+
+function profileReportSource() {
+  const range = profileKpiFilter ? profileKpiFilter.getRange() : null;
+  return {
+    member: me,
+    memberLabel: me.name,
+    periodLabel: profileKpiFilter ? profileKpiFilter.label() : "All time",
+    members: [me],
+    tasksFor: () => tasksInPeriod(profileKpiTasks, range),
+    allTasks: profileAllTasksCache,
+    projects: profileKpiProjects
+  };
+}
+
 const fractionOf = (a, b) => (b ? a / b : null);
 
 function sumKpis(ks) {
@@ -41,9 +69,9 @@ function reportDateText(ts) {
   return ts ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
 }
 
-function reportTaskRows(memberId, tasks) {
-  const byId = new Map(reportAllTasksCache.map(t => [t.id, t]));
-  const projectName = id => { const p = reportAllProjectsCache.find(x => x.id === id); return p ? p.name : "—"; };
+function reportTaskRows(memberId, tasks, source) {
+  const byId = new Map(source.allTasks.map(t => [t.id, t]));
+  const projectName = id => { const p = source.projects.find(x => x.id === id); return p ? p.name : "—"; };
   return tasks.map(t => {
     const parent = t.parentId ? byId.get(t.parentId) : null;
     const done = t.status === "done";
@@ -61,23 +89,27 @@ function reportTaskRows(memberId, tasks) {
       total: t.points == null ? null : t.points,
       share: share === undefined ? null : share,
       earned: score ? score.earned : null,
-      pct: score && score.share > 0 ? score.earned / score.share : null
+      pct: score && score.share > 0 ? score.earned / score.share : null,
+      note: memberNote(t, memberId)
     };
   }).sort((a, b) => a.project.localeCompare(b.project) || a.dueKey.localeCompare(b.dueKey) || a.task.localeCompare(b.task));
 }
 
 /* Everything a download needs, for the member and period currently selected. */
-function buildTeamReport() {
-  const scope = reportScope();
-  const members = scope.member ? [scope.member] : reportMembersCache.slice();
-  const groups = members.map(member => {
-    const tasks = reportMemberTasks(member.id);
+function buildReport(source) {
+  const groups = source.members.map(member => {
+    const tasks = source.tasksFor(member.id);
     const k = computeKpi(tasks, member.id);
-    return { member, k, f: kpiFractions(k), rows: reportTaskRows(member.id, tasks) };
+    return { member, k, f: kpiFractions(k), rows: reportTaskRows(member.id, tasks, source) };
   }).sort((a, b) => b.k.assigned - a.k.assigned || a.member.name.localeCompare(b.member.name));
   const totals = sumKpis(groups.map(g => g.k));
-  return { ...scope, generated: new Date(), groups, totals, totalsF: kpiFractions(totals) };
+  return {
+    member: source.member, memberLabel: source.memberLabel, periodLabel: source.periodLabel,
+    title: source.member ? "KPI Report" : "Team KPI Report",
+    generated: new Date(), groups, totals, totalsF: kpiFractions(totals)
+  };
 }
+const buildTeamReport = () => buildReport(teamReportSource());
 
 function reportFileName(report, ext) {
   const who = report.member ? report.member.name : "All-members";
@@ -89,17 +121,16 @@ const reportStamp = d => d.toLocaleString(undefined, { day: "numeric", month: "s
 const averageStyle = f => (f === null ? "center" : f >= 0.8 ? "good" : f >= 0.5 ? "warn" : "bad");
 
 /* ---------- Excel ---------- */
-function exportReportXlsx() {
-  const report = buildTeamReport();
+function exportReportXlsx(report) {
   const cols = 12;
   const rows = [];
   const merges = [];
   const blank = () => rows.push([]);
 
-  rows.push([{ v: "CloudTask — Team KPI Report", s: "title" }]);
+  rows.push([{ v: `CloudTask — ${report.title}`, s: "title" }]);
   rows.push([{ v: "CloudTech Bookkeeping", s: "subtitle" }]);
   blank();
-  [["Members", report.memberLabel], ["Period", report.periodLabel], ["Generated", reportStamp(report.generated)]].forEach(([label, value]) => {
+  [[report.member ? "Member" : "Members", report.memberLabel], ["Period", report.periodLabel], ["Generated", reportStamp(report.generated)]].forEach(([label, value]) => {
     rows.push([{ v: label, s: "label" }, { v: value, s: "text" }, { s: "text" }, { s: "text" }]);
     merges.push(`B${rows.length}:D${rows.length}`);
   });
@@ -158,8 +189,8 @@ function exportReportXlsx() {
     ]);
     r.push([]);
     const taskHeader = r.length + 1;
-    r.push(["Project", "Task", "Subtask of", "Due", "Completed", "Status", "Result", "Task points", "Share", "Earned", "%"]
-      .map((v, i) => ({ v, s: i < 3 ? "headerLeft" : "header" })));
+    r.push(["Project", "Task", "Subtask of", "Due", "Completed", "Status", "Result", "Task points", "Share", "Earned", "%", "Note"]
+      .map((v, i) => ({ v, s: i < 3 || i === 11 ? "headerLeft" : "header" })));
     g.rows.forEach(t => {
       r.push([
         { v: t.project, s: "textWrap" }, { v: t.task, s: "textWrap" }, { v: t.parent, s: "textWrap" },
@@ -167,17 +198,18 @@ function exportReportXlsx() {
         t.total === null ? { v: "", s: "center" } : { v: t.total, s: "num" },
         t.share === null ? { v: "", s: "center" } : { v: t.share, s: "num" },
         t.earned === null ? { v: "", s: "center" } : { v: t.earned, s: "num" },
-        t.pct === null ? { v: "", s: "center" } : { v: t.pct, s: "pct" }
+        t.pct === null ? { v: "", s: "center" } : { v: t.pct, s: "pct" },
+        { v: t.note, s: "textWrap" }
       ]);
     });
     if (!g.rows.length) r.push([{ v: "No tasks in this period.", s: "muted" }]);
     m.push("A1:H1");
     sheets.push({
       name: g.member.name,
-      widths: [24, 38, 24, 13, 13, 10, 18, 12, 11, 11, 10],
+      widths: [24, 38, 24, 13, 13, 10, 18, 12, 11, 11, 10, 44],
       heights: { 0: 30 },
       freeze: 0,
-      filter: g.rows.length ? { row: taskHeader, fromCol: 0, toCol: 10, lastRow: taskHeader + g.rows.length } : null,
+      filter: g.rows.length ? { row: taskHeader, fromCol: 0, toCol: 11, lastRow: taskHeader + g.rows.length } : null,
       merges: m,
       rows: r
     });
@@ -188,15 +220,14 @@ function exportReportXlsx() {
 }
 
 /* ---------- CSV ---------- */
-function exportReportCsv() {
-  const report = buildTeamReport();
-  const header = ["Member", "Project", "Task", "Subtask of", "Due", "Completed", "Status", "Result", "Task points", "Share", "Earned", "Percent"];
+function exportReportCsv(report) {
+  const header = ["Member", "Project", "Task", "Subtask of", "Due", "Completed", "Status", "Result", "Task points", "Share", "Earned", "Percent", "Note"];
   const lines = [header];
   report.groups.forEach(g => {
     g.rows.forEach(t => lines.push([
       g.member.name, t.project, t.task, t.parent, t.due, t.completed, t.status, t.result,
       t.total === null ? "" : t.total, t.share === null ? "" : t.share, t.earned === null ? "" : t.earned,
-      t.pct === null ? "" : Math.round(t.pct * 1000) / 10 + "%"
+      t.pct === null ? "" : Math.round(t.pct * 1000) / 10 + "%", t.note
     ]));
   });
   const esc = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
@@ -245,13 +276,14 @@ function reportPrintHtml(report) {
       </div>
       ${g.rows.length ? `
       <table class="pr-table pr-tasks">
-        <thead><tr><th class="l">Project</th><th class="l">Task</th><th>Due</th><th>Completed</th><th>Result</th><th>Task pts</th><th>Share</th><th>Earned</th><th>%</th></tr></thead>
+        <thead><tr><th class="l">Project</th><th class="l">Task</th><th>Due</th><th>Completed</th><th>Result</th><th>Task pts</th><th>Share</th><th>Earned</th><th>%</th><th class="l">Note</th></tr></thead>
         <tbody>${g.rows.map(r => `
           <tr>
             <td class="l">${e(r.project)}</td>
             <td class="l">${r.parent ? `<span class="pr-muted">↳ ${e(r.parent)} › </span>` : ""}${e(r.task)}</td>
             <td>${e(r.due)}</td><td>${e(r.completed)}</td><td>${e(r.result)}</td>
             <td>${num(r.total)}</td><td>${num(r.share)}</td><td>${num(r.earned)}</td><td>${r.pct === null ? "" : pct(r.pct)}</td>
+            <td class="l pr-note">${e(r.note)}</td>
           </tr>`).join("")}
         </tbody>
       </table>` : `<p class="pr-muted">No tasks in this period.</p>`}
@@ -260,10 +292,10 @@ function reportPrintHtml(report) {
   return `
     <div class="pr-head">
       <img class="pr-logo" src="logo.png" alt="">
-      <div><div class="pr-title">Team KPI Report</div><div class="pr-sub">CloudTask · CloudTech Bookkeeping</div></div>
+      <div><div class="pr-title">${e(report.title)}</div><div class="pr-sub">CloudTask · CloudTech Bookkeeping</div></div>
     </div>
     <table class="pr-meta">
-      <tr><th>Members</th><td>${e(report.memberLabel)}</td><th>Period</th><td>${e(report.periodLabel)}</td><th>Generated</th><td>${e(reportStamp(report.generated))}</td></tr>
+      <tr><th>${report.member ? "Member" : "Members"}</th><td>${e(report.memberLabel)}</td><th>Period</th><td>${e(report.periodLabel)}</td><th>Generated</th><td>${e(reportStamp(report.generated))}</td></tr>
     </table>
     <h2>Summary</h2>
     <table class="pr-table">
@@ -274,8 +306,7 @@ function reportPrintHtml(report) {
     ${memberSections}`;
 }
 
-function exportReportPdf() {
-  const report = buildTeamReport();
+function exportReportPdf(report) {
   let host = document.getElementById("print-report");
   if (!host) {
     host = document.createElement("div");
@@ -294,18 +325,18 @@ function exportReportPdf() {
   setTimeout(() => window.print(), 200);
 }
 
-/* ---------- Download menu ---------- */
-(function wireReportDownload() {
-  const button = document.getElementById("btn-report-download");
-  const menu = document.getElementById("report-dl-menu");
+/* ---------- Download menus (Report page and My Profile) ---------- */
+function wireReportDownload(buttonId, menuId, scopeId, sourceFn) {
+  const button = document.getElementById(buttonId);
+  const menu = document.getElementById(menuId);
   if (!button || !menu) return;
   const close = () => { menu.classList.add("u-hidden"); button.setAttribute("aria-expanded", "false"); };
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     const open = menu.classList.contains("u-hidden");
     if (open) {
-      const scope = reportScope();
-      document.getElementById("report-dl-scope").textContent = `${scope.memberLabel} · ${scope.periodLabel}`;
+      const source = sourceFn();
+      document.getElementById(scopeId).textContent = `${source.memberLabel} · ${source.periodLabel}`;
     }
     menu.classList.toggle("u-hidden", !open);
     button.setAttribute("aria-expanded", String(open));
@@ -315,9 +346,10 @@ function exportReportPdf() {
     if (!item) return;
     close();
     try {
-      if (item.dataset.fmt === "xlsx") exportReportXlsx();
-      else if (item.dataset.fmt === "pdf") exportReportPdf();
-      else exportReportCsv();
+      const report = buildReport(sourceFn());
+      if (item.dataset.fmt === "xlsx") exportReportXlsx(report);
+      else if (item.dataset.fmt === "pdf") exportReportPdf(report);
+      else exportReportCsv(report);
     } catch (err) {
       console.error(err);
       alert("Could not create the report: " + err.message);
@@ -325,4 +357,7 @@ function exportReportPdf() {
   });
   document.addEventListener("click", close);
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
-})();
+}
+
+wireReportDownload("btn-report-download", "report-dl-menu", "report-dl-scope", teamReportSource);
+wireReportDownload("btn-profile-download", "profile-dl-menu", "profile-dl-scope", profileReportSource);

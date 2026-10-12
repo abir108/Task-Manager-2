@@ -125,9 +125,12 @@ function parseAmount(value, label) {
 const parsePoints = value => parseAmount(value, "Points");
 const round2 = n => Math.round(n * 100) / 100;
 
-/* Keeps shares and earned points consistent after the total or the assignees change. */
+const MAX_REMARK_LENGTH = 500;
+
+/* Keeps shares, earned points and remarks consistent after the total or the assignees change. */
 function redistribute(task, oldTotal) {
   const ids = (task.assigneeIds || []).slice();
+  if (task.remarks) Object.keys(task.remarks).forEach(id => { if (!ids.includes(id)) delete task.remarks[id]; });
   const shares = {};
   if (task.points == null || ids.length === 0) {
     task.shares = {};
@@ -157,11 +160,11 @@ function clampEarned(task) {
   task.earned = earned;
 }
 
-/* Members only ever see their own share and score; admins see everyone's. */
+/* Members only ever see their own share, score and remark; admins see everyone's. */
 function taskForViewer(task, member) {
   if (member.role === "admin") return task;
   const own = obj => (obj && obj[member.id] !== undefined ? { [member.id]: obj[member.id] } : {});
-  return { ...task, shares: own(task.shares), earned: own(task.earned) };
+  return { ...task, shares: own(task.shares), earned: own(task.earned), remarks: own(task.remarks) };
 }
 
 function projectVisible(project, member) {
@@ -777,6 +780,7 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     points: pts.value,
     shares: {},
     earned: {},
+    remarks: {},
     sharesManual: false,
     completedAt: null,
     order: siblingCount,
@@ -882,6 +886,19 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
       }
       task.earned = task.earned || {};
       updates.forEach(([memberId, value]) => { if (value === null) delete task.earned[memberId]; else task.earned[memberId] = value; });
+    }
+    if (req.body.remarks !== undefined) {
+      const incoming = req.body.remarks;
+      if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return res.status(400).json({ error: "Invalid notes" });
+      const updates = [];
+      for (const [memberId, raw] of Object.entries(incoming)) {
+        const text = raw === null || raw === undefined ? "" : String(raw).trim();
+        if (text.length > MAX_REMARK_LENGTH) return res.status(400).json({ error: `A note can be at most ${MAX_REMARK_LENGTH} characters` });
+        if (text && !(task.assigneeIds || []).includes(memberId)) return res.status(400).json({ error: "That member is not assigned to this task" });
+        updates.push([memberId, text]);
+      }
+      task.remarks = task.remarks || {};
+      updates.forEach(([memberId, text]) => { if (text) task.remarks[memberId] = text; else delete task.remarks[memberId]; });
     }
   } else {
     const keys = Object.keys(req.body);

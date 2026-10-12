@@ -255,7 +255,18 @@
 
         <div class="section-head">
           <h3 class="section-title">My KPI</h3>
-          <div id="profile-period-filter"></div>
+          <div class="section-tools">
+            <div id="profile-period-filter"></div>
+            <div class="dl-wrap">
+              <button type="button" class="btn btn-primary btn-small" id="btn-profile-download" aria-haspopup="true" aria-expanded="false">Download &#9662;</button>
+              <div class="dl-menu u-hidden" id="profile-dl-menu" role="menu">
+                <div class="dl-scope" id="profile-dl-scope"></div>
+                <button type="button" role="menuitem" data-fmt="xlsx"><b>Excel</b><span>Workbook with your summary and every task</span></button>
+                <button type="button" role="menuitem" data-fmt="pdf"><b>PDF</b><span>Opens print: choose "Save as PDF"</span></button>
+                <button type="button" role="menuitem" data-fmt="csv"><b>CSV</b><span>Every task in one flat file</span></button>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="panel">
           <p class="kpi-note">Each task counts 100% once you mark it Done. Finishing by its due date counts as on time. Tasks are counted in the period of their due date.</p>

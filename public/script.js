@@ -9,6 +9,7 @@ const ICON_CHAT = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" s
 const ICON_PAPERCLIP = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>`;
 const ICON_PERSON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
 const ICON_CALENDAR = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
+const ICON_NOTE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>`;
 const ICON_FLAG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3v18M4 4h13l-2.5 4L17 12H4"/></svg>`;
 
 let me = null;
@@ -731,6 +732,7 @@ document.getElementById("btn-back-profile").addEventListener("click", () => show
 
 let profileKpiFilter = null;
 let profileKpiTasks = [];
+let profileAllTasksCache = [];
 let profileKpiProjects = [];
 
 function renderProfileKpi() {
@@ -789,6 +791,7 @@ async function renderProfilePage() {
     ? `${lifetimePoints.pointsEarned} pts · ${taskWord(lifetimePoints.pointsTasks)}`
     : "—";
   profileKpiTasks = assigned;
+  profileAllTasksCache = allTasks;
   profileKpiProjects = activeProjects;
   if (!profileKpiFilter) {
     profileKpiFilter = mountPeriodFilter(document.getElementById("profile-period-filter"), renderProfileKpi);
@@ -3299,13 +3302,14 @@ function fillTdPoints(task, editable) {
   const distributed = Math.round(Object.values(task.shares || {}).reduce((a, b) => a + b, 0) * 100) / 100;
   const left = Math.round((task.points - distributed) * 100) / 100;
   list.innerHTML = `
-    <div class="td-score-head"><span>Member</span><span>Share</span><span>Earned</span><span>%</span></div>` + rows.map(({ id, member }) => {
+    <div class="td-score-head"><span>Member</span><span>Share</span><span>Earned</span><span></span><span>%</span></div>` + rows.map(({ id, member }) => {
     const score = memberScore(task, id);
     return `
       <div class="td-score-row" data-member="${id}">
         <span class="td-score-who">${avatarHtml(member, "margin-left:0;width:22px;height:22px;font-size:10px;border:none")}<span>${escapeHtml(member.name)}</span></span>
         <input type="number" class="td-share-input" min="0" step="any" value="${num((task.shares || {})[id])}" ${editable ? "" : "disabled"} title="Points from the total given to this member">
         <input type="number" class="td-earned-input" min="0" step="any" value="${num((task.earned || {})[id])}" placeholder="0" ${canScore ? "" : "disabled"} title="${canScore ? "Points this member actually earned" : "Opens once the task is Done"}">
+        ${noteButtonHtml(task, id, editable)}
         <span class="td-score-pct">${score && score.pct !== null ? score.pct + "%" : "—"}</span>
       </div>`;
   }).join("") + (editable && left !== 0 ? `<div class="td-score-left">${left > 0 ? "Not yet given out" : "Over by"}: ${Math.abs(left)} pts</div>` : "");
@@ -3315,6 +3319,45 @@ function fillTdPoints(task, editable) {
     const val = el => (el.value === "" ? null : Number(el.value));
     row.querySelector(".td-share-input").addEventListener("change", e => saveTdPoints({ shares: { [memberId]: val(e.target) } }));
     row.querySelector(".td-earned-input").addEventListener("change", e => saveTdPoints({ earned: { [memberId]: val(e.target) } }));
+    const noteBtn = row.querySelector(".td-note-btn");
+    if (noteBtn) noteBtn.addEventListener("click", e => { e.stopPropagation(); openScoreNotePopover(noteBtn, task, memberId, editable); });
+  });
+}
+
+/* A short note on a member's score (why it is lower, for instance). The admin writes it, the member sees it,
+   and it appears in the KPI views and in downloaded reports. */
+function memberNote(task, memberId) {
+  return (task.remarks && task.remarks[memberId]) || "";
+}
+
+function noteButtonHtml(task, memberId, editable) {
+  const note = memberNote(task, memberId);
+  if (!editable && !note) return "<span></span>";
+  const title = editable ? (note ? "Edit the note" : "Add a note: why this score?") : "Read the note";
+  return `<button type="button" class="td-note-btn${note ? " has-note" : ""}" title="${title}" aria-label="${title}">${ICON_NOTE}</button>`;
+}
+
+function openScoreNotePopover(anchor, task, memberId, editable) {
+  const note = memberNote(task, memberId);
+  showPopover(anchor, (pop) => {
+    pop.classList.add("popover-note");
+    if (!editable) {
+      pop.innerHTML = `<div class="score-note-view"><b>Note from your admin</b><p>${escapeHtml(note)}</p></div>`;
+      return;
+    }
+    pop.innerHTML = `
+      <label>Why this score? <em>The member can see it</em>
+        <textarea rows="4" maxlength="500" placeholder="For example: two invoices were missed">${escapeHtml(note)}</textarea>
+      </label>
+      <div class="score-note-actions">
+        <button type="button" class="btn btn-ghost btn-small" data-act="clear">Clear</button>
+        <button type="button" class="btn btn-primary btn-small" data-act="save">Save</button>
+      </div>`;
+    const area = pop.querySelector("textarea");
+    const save = (text) => { closeAllPopovers(); saveTdPoints({ remarks: { [memberId]: text } }); };
+    pop.querySelector('[data-act="save"]').addEventListener("click", () => save(area.value.trim()));
+    pop.querySelector('[data-act="clear"]').addEventListener("click", () => save(""));
+    requestAnimationFrame(() => { area.focus(); area.setSelectionRange(area.value.length, area.value.length); });
   });
 }
 
@@ -3967,6 +4010,8 @@ function kpiHtml(memberTasks, projects, periodLabel, memberId) {
       if (pk.ontime) chips.push(`<span class="kpi-chip kpi-ontime">${pk.ontime} on time</span>`);
       if (pk.late) chips.push(`<span class="kpi-chip kpi-late">${pk.late} late</span>`);
       if (pk.overdue) chips.push(`<span class="kpi-chip kpi-overdue">${pk.overdue} overdue</span>`);
+      const notedTasks = tks.filter(t => memberNote(t, memberId)).length;
+      if (notedTasks) chips.push(`<span class="kpi-chip kpi-notes">${ICON_NOTE} ${notedTasks} note${notedTasks === 1 ? "" : "s"}</span>`);
       if (pk.pointsTasks) chips.push(`<span class="kpi-chip kpi-points">★ ${pk.pointsEarned} pts · ${taskWord(pk.pointsTasks)}${pk.pointsRate === null ? "" : " · " + pk.pointsRate + "%"}</span>`);
       const rows = tks
         .map(t => ({ t, o: kpiTaskOutcome(t) }))
@@ -3976,6 +4021,7 @@ function kpiHtml(memberTasks, projects, periodLabel, memberId) {
             <div class="rdr-main">
               <span class="rdr-title">${t.parentId ? "↳ " : ""}${escapeHtml(t.title)}</span>
               <span class="rdr-sub">${t.dueDate ? "Due " + formatDate(t.dueDate) : "No due date"}${t.status === "done" && t.completedAt ? " · Done " + fmtTs(t.completedAt) : ""}</span>
+              ${memberNote(t, memberId) ? `<span class="rdr-note">${ICON_NOTE}<span>${escapeHtml(memberNote(t, memberId))}</span></span>` : ""}
             </div>
             <span class="kpi-chip kpi-${o.kind}">${escapeHtml(o.label)}</span>
             ${(() => { const sc = t.status === "done" ? memberScore(t, memberId) : null; return sc ? `<span class="kpi-chip kpi-points">★ ${sc.earned}/${sc.share} pts${sc.pct === null ? "" : " · " + sc.pct + "%"}</span>` : (t.points != null ? `<span class="kpi-chip kpi-open">${t.points} pts</span>` : ""); })()}

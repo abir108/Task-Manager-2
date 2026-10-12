@@ -181,6 +181,7 @@ function load() {
     if (!isObj(t.shares)) { t.shares = {}; changed = true; }
     if (!isObj(t.earned)) { t.earned = {}; changed = true; }
     if (t.sharesManual === undefined) { t.sharesManual = false; changed = true; }
+    if (!isObj(t.remarks)) { t.remarks = {}; changed = true; }
     if (t.points != null && (t.assigneeIds || []).length && Object.keys(t.shares).length === 0) {
       // Split the total equally between the assignees until an admin changes a share.
       const ids = t.assigneeIds;
