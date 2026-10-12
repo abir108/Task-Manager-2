@@ -3385,6 +3385,9 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
 }
 .score-note-modal .modal-actions { justify-content: flex-end; }
 .score-note-modal .modal-actions #score-note-clear { margin-right: auto; }
+.kpi-chip.kpi-notes { display: inline-flex; align-items: center; gap: 5px; background: rgba(240, 190, 60, 0.16); color: #d9a21b; }
+.kp-chips .kpi-chip.kpi-notes { color: #d9a21b; }
+.kpi-chip.kpi-notes svg { width: 12px; height: 12px; }
 .rdr-note-btn {
   flex-shrink: 0;
   width: 28px; height: 28px; padding: 0;
