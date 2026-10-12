@@ -594,8 +594,25 @@
     <button type="button" class="btn btn-ghost td-updates-btn td-member-only" id="td-updates-btn">Updates</button>
 
     <div class="modal-actions td-actions">
-      <button class="btn btn-ghost danger admin-only" id="td-delete-btn">Delete task</button>
-      <button class="btn btn-primary" data-close="modal-task-detail">Close</button>
+      <span class="td-saved admin-only" id="td-saved"></span>
+      <div class="td-actions-buttons">
+        <button class="btn btn-ghost" data-close="modal-task-detail">Close</button>
+        <button class="btn btn-primary admin-only" id="td-save-btn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-score-note">
+  <div class="modal score-note-modal">
+    <h2 id="score-note-title">Note</h2>
+    <p class="subtitle" id="score-note-sub"></p>
+    <textarea id="score-note-text" rows="5" maxlength="500" placeholder="For example: two bank statements were uploaded late"></textarea>
+    <p class="score-note-text u-hidden" id="score-note-view"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost danger" id="score-note-clear">Clear</button>
+      <button class="btn btn-ghost" id="score-note-cancel" data-close="modal-score-note">Cancel</button>
+      <button class="btn btn-primary" id="score-note-save">Save</button>
     </div>
   </div>
 </div>

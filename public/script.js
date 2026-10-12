@@ -3273,6 +3273,7 @@ function openTaskDetailModal(task, group, project, groupTasks) {
   if (pointsPromptFresh) pointsPromptFresh = false;
   else if (!document.getElementById("modal-task-detail").classList.contains("open")) pointsPromptTaskId = null;
   document.getElementById("td-points-prompt").classList.toggle("u-hidden", !(editable && pointsPromptTaskId === task.id));
+  if (!document.getElementById("modal-task-detail").classList.contains("open")) document.getElementById("td-saved").textContent = "";
   fillTdPoints(task, editable);
   renderTdOwnerList(task, project, editable);
   renderTdSubitemsList(task, group, groupTasks);
@@ -3326,6 +3327,13 @@ function fillTdPoints(task, editable) {
 
 /* A short note on a member's score (why it is lower, for instance). The admin writes it, the member sees it,
    and it appears in the KPI views and in downloaded reports. */
+document.addEventListener("click", (event) => {
+  const btn = event.target.closest(".rdr-note-btn");
+  if (!btn) return;
+  event.preventDefault();
+  openScoreNoteDialog({ title: "Note on this score", sub: btn.dataset.task, text: btn.dataset.note, editable: false });
+});
+
 function memberNote(task, memberId) {
   return (task.remarks && task.remarks[memberId]) || "";
 }
@@ -3337,37 +3345,76 @@ function noteButtonHtml(task, memberId, editable) {
   return `<button type="button" class="td-note-btn${note ? " has-note" : ""}" title="${title}" aria-label="${title}">${ICON_NOTE}</button>`;
 }
 
+/* The note dialog: the admin writes or edits a note, everyone else just reads it.
+   onSave(text) is called with the trimmed text (empty text removes the note). */
+let scoreNoteSave = null;
+function openScoreNoteDialog({ title, sub, text, editable, onSave }) {
+  document.getElementById("score-note-title").textContent = title;
+  document.getElementById("score-note-sub").textContent = sub || "";
+  const area = document.getElementById("score-note-text");
+  const view = document.getElementById("score-note-view");
+  area.value = text || "";
+  area.classList.toggle("u-hidden", !editable);
+  view.textContent = text || "";
+  view.classList.toggle("u-hidden", editable);
+  document.getElementById("score-note-save").classList.toggle("u-hidden", !editable);
+  document.getElementById("score-note-clear").classList.toggle("u-hidden", !editable || !text);
+  document.getElementById("score-note-cancel").textContent = editable ? "Cancel" : "Close";
+  scoreNoteSave = editable ? onSave : null;
+  openModal("modal-score-note");
+  if (editable) requestAnimationFrame(() => { area.focus(); area.setSelectionRange(area.value.length, area.value.length); });
+}
+
 function openScoreNotePopover(anchor, task, memberId, editable) {
-  const note = memberNote(task, memberId);
-  showPopover(anchor, (pop) => {
-    pop.classList.add("popover-note");
-    if (!editable) {
-      pop.innerHTML = `<div class="score-note-view"><b>Note from your admin</b><p>${escapeHtml(note)}</p></div>`;
-      return;
-    }
-    pop.innerHTML = `
-      <label>Why this score? <em>The member can see it</em>
-        <textarea rows="4" maxlength="500" placeholder="For example: two invoices were missed">${escapeHtml(note)}</textarea>
-      </label>
-      <div class="score-note-actions">
-        <button type="button" class="btn btn-ghost btn-small" data-act="clear">Clear</button>
-        <button type="button" class="btn btn-primary btn-small" data-act="save">Save</button>
-      </div>`;
-    const area = pop.querySelector("textarea");
-    const save = (text) => { closeAllPopovers(); saveTdPoints({ remarks: { [memberId]: text } }); };
-    pop.querySelector('[data-act="save"]').addEventListener("click", () => save(area.value.trim()));
-    pop.querySelector('[data-act="clear"]').addEventListener("click", () => save(""));
-    requestAnimationFrame(() => { area.focus(); area.setSelectionRange(area.value.length, area.value.length); });
+  const member = team.find(m => m.id === memberId);
+  openScoreNoteDialog({
+    title: editable ? "Why this score?" : "Note from your admin",
+    sub: `${member ? member.name : ""} · ${task.title}`,
+    text: memberNote(task, memberId),
+    editable,
+    onSave: text => saveTdPoints({ remarks: { [memberId]: text } })
   });
 }
 
-async function saveTdPoints(patch) {
-  if (!taskDetailContext) return;
-  try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, patch); } catch (err) { alert(err.message); }
-  await loadAndRenderBoard();
-  const fresh = tasks.find(t => t.id === taskDetailContext.taskId);
-  if (fresh) fillTdPoints(fresh, isAdmin());
+document.getElementById("score-note-save").addEventListener("click", () => {
+  const text = document.getElementById("score-note-text").value.trim();
+  const save = scoreNoteSave;
+  closeModal("modal-score-note");
+  if (save) save(text);
+});
+document.getElementById("score-note-clear").addEventListener("click", () => {
+  const save = scoreNoteSave;
+  closeModal("modal-score-note");
+  if (save) save("");
+});
+
+/* Changes in the points pop-up are saved as soon as they are made; the Save button waits for any
+   that are still on their way, then closes the pop-up. */
+const tdPendingSaves = new Set();
+function saveTdPoints(patch) {
+  if (!taskDetailContext) return Promise.resolve();
+  const job = (async () => {
+    const saved = document.getElementById("td-saved");
+    saved.textContent = "Saving…";
+    try { await api("PATCH", `/api/tasks/${taskDetailContext.taskId}`, patch); }
+    catch (err) { alert(err.message); saved.textContent = ""; }
+    await loadAndRenderBoard();
+    const fresh = taskDetailContext && tasks.find(t => t.id === taskDetailContext.taskId);
+    if (fresh) fillTdPoints(fresh, isAdmin());
+    if (saved.textContent === "Saving…") saved.textContent = "\u2713 Saved";
+  })();
+  tdPendingSaves.add(job);
+  job.finally(() => tdPendingSaves.delete(job));
+  return job;
 }
+
+document.getElementById("td-save-btn").addEventListener("click", async () => {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // commits a half-typed value
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await Promise.all(Array.from(tdPendingSaves));
+  closeModal("modal-task-detail");
+  showToast("Saved");
+});
 document.getElementById("td-points").addEventListener("change", e => {
   saveTdPoints({ points: e.target.value === "" ? null : Number(e.target.value) });
 });
@@ -3477,14 +3524,6 @@ document.getElementById("td-updates-btn").addEventListener("click", () => {
   if (!taskDetailContext) return;
   const task = tasks.find(t => t.id === taskDetailContext.taskId);
   if (task) openNotesModal(task);
-});
-document.getElementById("td-delete-btn").addEventListener("click", async () => {
-  if (!taskDetailContext) return;
-  if (!confirm("Delete this task and all its subitems?")) return;
-  try { await api("DELETE", `/api/tasks/${taskDetailContext.taskId}`); } catch (err) { alert(err.message); }
-  closeModal("modal-task-detail");
-  taskDetailContext = null;
-  await loadAndRenderBoard();
 });
 document.getElementById("td-add-subitem-input").addEventListener("keydown", async (e) => {
   if (e.key !== "Enter" || !taskDetailContext) return;
@@ -4021,9 +4060,9 @@ function kpiHtml(memberTasks, projects, periodLabel, memberId) {
             <div class="rdr-main">
               <span class="rdr-title">${t.parentId ? "↳ " : ""}${escapeHtml(t.title)}</span>
               <span class="rdr-sub">${t.dueDate ? "Due " + formatDate(t.dueDate) : "No due date"}${t.status === "done" && t.completedAt ? " · Done " + fmtTs(t.completedAt) : ""}</span>
-              ${memberNote(t, memberId) ? `<span class="rdr-note">${ICON_NOTE}<span>${escapeHtml(memberNote(t, memberId))}</span></span>` : ""}
             </div>
             <span class="kpi-chip kpi-${o.kind}">${escapeHtml(o.label)}</span>
+            ${memberNote(t, memberId) ? `<button type="button" class="rdr-note-btn" data-note="${escapeHtml(memberNote(t, memberId))}" data-task="${escapeHtml(t.title)}" title="Read the note" aria-label="Read the note">${ICON_NOTE}</button>` : ""}
             ${(() => { const sc = t.status === "done" ? memberScore(t, memberId) : null; return sc ? `<span class="kpi-chip kpi-points">★ ${sc.earned}/${sc.share} pts${sc.pct === null ? "" : " · " + sc.pct + "%"}</span>` : (t.points != null ? `<span class="kpi-chip kpi-open">${t.points} pts</span>` : ""); })()}
           </div>`).join("");
       return `
