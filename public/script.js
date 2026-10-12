@@ -4153,20 +4153,38 @@ function reportMemberTasks(memberId) {
   return tasksInPeriod(reportAllTasksCache.filter(t => (t.assigneeIds || []).includes(memberId)), range);
 }
 
+/* Sortable comparison table: key -> how to read the value from a row */
+let reportSort = { key: "assigned", dir: -1 };
+const REPORT_SORT_VALUE = {
+  name: r => r.member.name.toLowerCase(),
+  assigned: r => r.k.assigned,
+  done: r => r.k.done,
+  ontime: r => r.k.ontime,
+  late: r => r.k.late,
+  overdue: r => r.k.overdue,
+  completion: r => (r.k.assigned ? r.k.done / r.k.assigned : -1),
+  onTime: r => (r.k.ontime + r.k.late ? r.k.ontime / (r.k.ontime + r.k.late) : -1),
+  average: r => (r.k.pointsScoredMax ? r.k.pointsEarned / r.k.pointsScoredMax : -1),
+  points: r => r.k.pointsEarned
+};
+
 function renderReportTeam() {
   const select = document.getElementById("report-kpi-member");
   const memberId = select.value;
   const label = reportPeriodFilter ? reportPeriodFilter.label() : "All time";
+  const chosen = reportMembersCache.find(m => m.id === memberId);
   document.getElementById("report-kpi-note").textContent =
-    `Period: ${label}. A task is counted in the period of its due date (or the day it was finished or created, if it has no due date).`;
+    `${chosen ? chosen.name : "All members"} · ${label}. A task is counted in the period of its due date (or the day it was finished or created, if it has no due date).`;
 
   reportEmployeeRows = reportMembersCache.map(member => {
     const tasks = reportMemberTasks(member.id);
     return { member, k: computeKpi(tasks, member.id), projectCount: new Set(tasks.map(t => t.projectId)).size };
-  }).sort((a, b) => b.k.assigned - a.k.assigned);
+  });
 
+  const strip = document.getElementById("report-team-strip");
   const body = document.getElementById("report-kpi-body");
   if (memberId) {
+    strip.innerHTML = "";
     const member = reportMembersCache.find(m => m.id === memberId);
     body.innerHTML = `
       <div class="report-person kpi-member-head">${member ? avatarHtml(member) : ""}<span>${member ? escapeHtml(member.name) : ""}</span></div>
@@ -4175,33 +4193,85 @@ function renderReportTeam() {
   }
 
   if (!reportEmployeeRows.length) {
+    strip.innerHTML = "";
     body.innerHTML = `<p class="empty-hint">No team members yet.</p>`;
     return;
   }
+
+  // team totals
+  const sum = key => reportEmployeeRows.reduce((n, r) => n + r.k[key], 0);
+  const T = { assigned: sum("assigned"), done: sum("done"), ontime: sum("ontime"), late: sum("late"), overdue: sum("overdue"),
+    earned: Math.round(sum("pointsEarned") * 100) / 100, scoredMax: sum("pointsScoredMax"), scoredTasks: sum("pointsTasks") };
+  const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : null);
+  const completion = pctOf(T.done, T.assigned), onTime = pctOf(T.ontime, T.ontime + T.late), average = pctOf(T.earned, T.scoredMax);
+  const active = reportEmployeeRows.filter(r => r.k.assigned > 0).length;
+  const tone = (v, good, mid) => (v === null ? "" : v >= good ? "good" : v >= mid ? "warn" : "bad");
+  const card = (title, value, unit, sub, cls) => `
+    <div class="vital-card ${cls || ""}"><div class="vital-title">${title}</div>
+      <div class="vital-value">${value}<small>${unit}</small></div><div class="vital-sub ${sub[1] || ""}">${sub[0]}</div></div>`;
+  strip.innerHTML = `<div class="vitals-grid kpi-vitals report-strip">
+    ${card("Team members", active, "of " + reportEmployeeRows.length, ["with tasks in this period", ""])}
+    ${card("Task assignments", T.assigned, "", [`${T.done} done · ${T.overdue} overdue`, T.overdue ? "bad" : "good"])}
+    ${card("Completion", completion === null ? "—" : completion, completion === null ? "" : "%", [completion === null ? "No tasks" : `${T.done} of ${T.assigned} tasks`, tone(completion, 80, 50)])}
+    ${card("On-time rate", onTime === null ? "—" : onTime, onTime === null ? "" : "%", [onTime === null ? "No deadlines met yet" : `${T.ontime} of ${T.ontime + T.late} with a deadline`, tone(onTime, 70, 40)])}
+    ${card("KPI average", average === null ? "—" : average, average === null ? "" : "%", [average === null ? "No scored tasks yet" : `over ${taskWord(T.scoredTasks)}`, tone(average, 80, 50)], "vital-points")}
+    ${card("Points earned", T.earned, "pts", [T.scoredTasks ? `from ${taskWord(T.scoredTasks)}` : "No points yet", ""], "vital-points")}
+  </div>`;
+
+  const getter = REPORT_SORT_VALUE[reportSort.key] || REPORT_SORT_VALUE.assigned;
+  const sorted = reportEmployeeRows.slice().sort((x, y) => {
+    const vx = getter(x), vy = getter(y);
+    const cmp = vx < vy ? -1 : vx > vy ? 1 : 0;
+    return (cmp * reportSort.dir) || x.member.name.localeCompare(y.member.name);
+  });
+  const th = (key, text, cls) => `<th class="sortable ${cls || ""}${reportSort.key === key ? " sorted" : ""}" data-sort="${key}">${text}<i>${reportSort.key === key ? (reportSort.dir > 0 ? "\u25B2" : "\u25BC") : ""}</i></th>`;
+  const rate = (v, good, mid) => v === null ? `<span class="cell-sub">—</span>` : `<span class="kpi-chip kpi-${v >= good ? "ontime" : v >= mid ? "late" : "overdue"}">${v}%</span>`;
+
   body.innerHTML = `
     <div class="report-table-wrap">
       <table class="report-table kpi-compare-table">
         <thead>
-          <tr><th>Member</th><th>Assigned</th><th>Done</th><th>On time</th><th>Late</th><th>Overdue</th><th>Completion</th><th>On-time rate</th><th>KPI average</th><th>Points</th></tr>
+          <tr><th class="rank-col">#</th>${th("name", "Member", "left")}${th("assigned", "Assigned")}${th("done", "Done")}${th("ontime", "On time")}${th("late", "Late")}${th("overdue", "Overdue")}${th("completion", "Completion")}${th("onTime", "On-time rate")}${th("average", "KPI average")}${th("points", "Points")}</tr>
         </thead>
         <tbody>
-          ${reportEmployeeRows.map(r => `
-            <tr data-member="${r.member.id}" class="${r.k.assigned ? "" : "kpi-row-empty"}">
+          ${sorted.map((r, i) => {
+            const k = r.k;
+            const comp = k.assigned ? Math.round((k.done / k.assigned) * 100) : null;
+            const ot = k.ontime + k.late ? Math.round((k.ontime / (k.ontime + k.late)) * 100) : null;
+            const avg = k.pointsScoredMax ? Math.round((k.pointsEarned / k.pointsScoredMax) * 100) : null;
+            return `
+            <tr data-member="${r.member.id}" class="${k.assigned ? "" : "kpi-row-empty"}">
+              <td class="rank-col">${i + 1}</td>
               <td><div class="report-person">${avatarHtml(r.member)}<span>${escapeHtml(r.member.name)}</span></div></td>
-              <td>${r.k.assigned}</td>
-              <td>${r.k.done}</td>
-              <td class="kpi-good-text">${r.k.ontime}</td>
-              <td class="kpi-warn-text">${r.k.late}</td>
-              <td class="kpi-bad-text">${r.k.overdue}</td>
-              <td>${r.k.assigned ? r.k.completion + "%" : "—"}</td>
-              <td>${r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%"}</td>
-              <td class="kpi-points-text">${r.k.pointsRate === null ? "—" : r.k.pointsRate + "%"}</td>
-              <td class="kpi-points-text">${r.k.pointsTasks ? r.k.pointsEarned + `<span class="cell-sub">from ${taskWord(r.k.pointsTasks)}</span>` : "—"}</td>
-            </tr>`).join("")}
+              <td>${k.assigned}</td>
+              <td>${k.done}</td>
+              <td class="kpi-good-text">${k.ontime}</td>
+              <td class="kpi-warn-text">${k.late}</td>
+              <td class="${k.overdue ? "kpi-bad-text" : ""}">${k.overdue}</td>
+              <td>${comp === null ? `<span class="cell-sub">—</span>` : `<div class="report-progress"><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${comp}%"></div></div><span class="report-progress-txt">${comp}%</span></div>`}</td>
+              <td>${rate(ot, 70, 40)}</td>
+              <td>${rate(avg, 80, 50)}</td>
+              <td class="kpi-points-text">${k.pointsTasks ? k.pointsEarned + `<span class="cell-sub">from ${taskWord(k.pointsTasks)}</span>` : "—"}</td>
+            </tr>`;
+          }).join("")}
         </tbody>
+        <tfoot>
+          <tr class="report-total">
+            <td></td><td>Team total</td><td>${T.assigned}</td><td>${T.done}</td><td>${T.ontime}</td><td>${T.late}</td><td>${T.overdue}</td>
+            <td>${completion === null ? "—" : completion + "%"}</td><td>${onTime === null ? "—" : onTime + "%"}</td><td>${average === null ? "—" : average + "%"}</td><td>${T.earned}</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
-    <p class="kpi-note">Click a member to see their KPI project by project.</p>`;
+    <p class="kpi-note">Click a column heading to sort. Click a member to see their KPI project by project.</p>`;
+
+  body.querySelectorAll("th[data-sort]").forEach(cell => {
+    cell.addEventListener("click", () => {
+      const key = cell.dataset.sort;
+      reportSort = { key, dir: reportSort.key === key ? -reportSort.dir : (key === "name" ? 1 : -1) };
+      renderReportTeam();
+    });
+  });
   body.querySelectorAll("tr[data-member]").forEach(tr => {
     tr.addEventListener("click", () => {
       select.value = tr.dataset.member;
@@ -4308,18 +4378,6 @@ function periodSlug() {
   return (reportPeriodFilter ? reportPeriodFilter.label() : "all-time").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-document.getElementById("btn-export-employee-csv").addEventListener("click", () => {
-  const rows = reportEmployeeRows.map(r => [
-    r.member.name, r.k.assigned, r.k.done, r.k.ontime, r.k.late, r.k.overdue,
-    r.k.assigned ? r.k.completion + "%" : "—", r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%",
-    r.k.pointsRate === null ? "" : r.k.pointsRate + "%", r.k.pointsEarned, r.k.pointsTasks
-  ]);
-  downloadCsv(
-    `team-kpi-${periodSlug()}.csv`,
-    ["Member", "Tasks Assigned", "Done", "Done On Time", "Done Late", "Overdue (not done)", "Completion", "On-time Rate", "KPI Average", "Points Earned", "Tasks Scored"],
-    rows
-  );
-});
 
 document.getElementById("btn-export-project-csv").addEventListener("click", () => {
   const rows = reportProjectRows.map(r => [

@@ -421,13 +421,26 @@
       <div id="report-tab-team" class="u-hidden">
         <div class="panel">
           <div class="panel-head-row">
-            <h2>Team KPI</h2>
+            <div>
+              <h2>Team KPI</h2>
+              <p class="kpi-note report-scope-note" id="report-kpi-note"></p>
+            </div>
             <div class="panel-tools">
-              <select id="report-kpi-member" class="kpi-member-select"></select>
-              <button class="btn btn-ghost btn-small" id="btn-export-employee-csv">Export CSV</button>
+              <label class="rb-field"><span>Member</span>
+                <select id="report-kpi-member" class="kpi-member-select"></select>
+              </label>
+              <div class="dl-wrap">
+                <button type="button" class="btn btn-primary btn-small" id="btn-report-download" aria-haspopup="true" aria-expanded="false">Download &#9662;</button>
+                <div class="dl-menu u-hidden" id="report-dl-menu" role="menu">
+                  <div class="dl-scope" id="report-dl-scope"></div>
+                  <button type="button" role="menuitem" data-fmt="xlsx"><b>Excel</b><span>Workbook with a summary and a sheet for each member</span></button>
+                  <button type="button" role="menuitem" data-fmt="pdf"><b>PDF</b><span>Opens print: choose "Save as PDF"</span></button>
+                  <button type="button" role="menuitem" data-fmt="csv"><b>CSV</b><span>Every task in one flat file</span></button>
+                </div>
+              </div>
             </div>
           </div>
-          <p class="kpi-note" id="report-kpi-note"></p>
+          <div id="report-team-strip"></div>
           <div id="report-kpi-body"></div>
         </div>
       </div>
@@ -708,6 +721,8 @@
 
 <div class="toast-stack" id="toast-stack"></div>
 
+<script src="xlsx-lite.js"></script>
 <script src="script.js"></script>
+<script src="report-export.js"></script>
 </body>
 </html>
