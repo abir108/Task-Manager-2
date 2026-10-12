@@ -546,15 +546,10 @@
 
     <div class="td-field">
       <label>Points</label>
-      <div class="td-points">
-        <label class="td-points-item">Worth
-          <input type="number" id="td-points" min="0" max="1000" step="0.5" placeholder="e.g. 10">
-        </label>
-        <label class="td-points-item">Scored
-          <input type="number" id="td-points-earned" min="0" max="1000" step="0.5" placeholder="after Done">
-        </label>
-      </div>
-      <p class="td-points-hint" id="td-points-hint"></p>
+      <label class="td-points-total">Total for this task
+        <input type="number" id="td-points" min="0" max="1000" step="0.5" placeholder="e.g. 10">
+      </label>
+      <div id="td-score-list" class="td-score-list"></div>
     </div>
 
     <div class="td-field">

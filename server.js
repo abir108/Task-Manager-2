@@ -109,14 +109,29 @@ async function inviteResult(sendPromise) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/* Points an admin allots to a task (pointsAllotted) and, once the work is Done, the points
-   actually earned (pointsEarned, 0..allotted). Values are whole numbers or halves up to 1000. */
+/* An admin gives a task a total number of points (task.points). Once the task is Done the admin
+   gives each assigned member a percentage of those points (task.scores[memberId], 0..100), so a
+   member's points for the task are points x percent / 100. */
 const MAX_TASK_POINTS = 1000;
 function parsePoints(value) {
   if (value === null || value === "" || value === undefined) return { value: null };
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0 || n > MAX_TASK_POINTS) return { error: `Points must be a number from 0 to ${MAX_TASK_POINTS}` };
   return { value: Math.round(n * 2) / 2 };
+}
+
+function parsePercent(value) {
+  if (value === null || value === "" || value === undefined) return { value: null };
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return { error: "The percentage must be a number from 0 to 100" };
+  return { value: Math.round(n * 10) / 10 };
+}
+
+/* Members only ever see their own score; admins see everyone's. */
+function taskForViewer(task, member) {
+  if (member.role === "admin" || !task.scores) return task;
+  const own = task.scores[member.id];
+  return { ...task, scores: own === undefined ? {} : { [member.id]: own } };
 }
 
 function projectVisible(project, member) {
@@ -680,11 +695,11 @@ app.get("/api/tasks", requireAuth, (req, res) => {
     const visibleIds = new Set(
       store.projects.filter(p => projectVisible(p, req.member)).map(p => p.id)
     );
-    return res.json(store.tasks.filter(t => visibleIds.has(t.projectId)).sort(byOrder));
+    return res.json(store.tasks.filter(t => visibleIds.has(t.projectId)).sort(byOrder).map(t => taskForViewer(t, req.member)));
   }
   const project = loadProjectOr403(req, res);
   if (!project) return;
-  res.json(store.tasks.filter(t => t.projectId === project.id).sort(byOrder));
+  res.json(store.tasks.filter(t => t.projectId === project.id).sort(byOrder).map(t => taskForViewer(t, req.member)));
 });
 
 app.post("/api/tasks", requireAdmin, async (req, res) => {
@@ -730,7 +745,7 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     start: "",
     end: "",
     points: pts.value,
-    pointsEarned: null,
+    scores: {},
     completedAt: null,
     order: siblingCount,
     createdAt: Date.now()
@@ -780,6 +795,7 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
     if (req.body.assigneeIds !== undefined && Array.isArray(req.body.assigneeIds)) {
       const validIds = new Set(store.members.map(m => m.id));
       task.assigneeIds = req.body.assigneeIds.filter(id => validIds.has(id));
+      Object.keys(task.scores || {}).forEach(id => { if (!task.assigneeIds.includes(id)) delete task.scores[id]; });
     }
     if (req.body.status !== undefined) {
       if (!group || !group.statuses.some(s => s.id === req.body.status)) {
@@ -792,19 +808,24 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
       const pts = parsePoints(req.body.points);
       if (pts.error) return res.status(400).json({ error: pts.error });
       task.points = pts.value;
-      if (task.pointsEarned != null && (task.points === null || task.pointsEarned > task.points)) {
-        task.pointsEarned = task.points;   // never keep more earned than allotted
-      }
+      if (task.points === null) task.scores = {};   // no total, nothing to score against
     }
-    if (req.body.pointsEarned !== undefined) {
-      const pts = parsePoints(req.body.pointsEarned);
-      if (pts.error) return res.status(400).json({ error: pts.error });
-      if (pts.value !== null) {
-        if (task.status !== "done") return res.status(400).json({ error: "Mark the task Done before giving points" });
-        if (task.points == null) return res.status(400).json({ error: "Set the points for this task first" });
-        if (pts.value > task.points) return res.status(400).json({ error: `This task is worth ${task.points} points, so the score cannot be higher` });
+    if (req.body.scores !== undefined) {
+      const incoming = req.body.scores;
+      if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return res.status(400).json({ error: "Invalid scores" });
+      const updates = [];
+      for (const [memberId, raw] of Object.entries(incoming)) {
+        const pct = parsePercent(raw);
+        if (pct.error) return res.status(400).json({ error: pct.error });
+        if (pct.value !== null) {
+          if (task.status !== "done") return res.status(400).json({ error: "Mark the task Done before giving points" });
+          if (task.points == null) return res.status(400).json({ error: "Set the total points for this task first" });
+          if (!(task.assigneeIds || []).includes(memberId)) return res.status(400).json({ error: "That member is not assigned to this task" });
+        }
+        updates.push([memberId, pct.value]);
       }
-      task.pointsEarned = pts.value;
+      task.scores = task.scores || {};
+      updates.forEach(([memberId, value]) => { if (value === null) delete task.scores[memberId]; else task.scores[memberId] = value; });
     }
   } else {
     const keys = Object.keys(req.body);
@@ -847,7 +868,7 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
     }).catch(logNotifyError);
   }
 
-  res.json(task);
+  res.json(taskForViewer(task, req.member));
 });
 
 app.delete("/api/tasks/:id", requireAdmin, async (req, res) => {

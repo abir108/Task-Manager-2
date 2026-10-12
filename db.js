@@ -177,7 +177,16 @@ function load() {
       changed = true;
     }
     if (t.points === undefined) { t.points = null; changed = true; }
-    if (t.pointsEarned === undefined) { t.pointsEarned = null; changed = true; }
+    if (!t.scores || typeof t.scores !== "object" || Array.isArray(t.scores)) { t.scores = {}; changed = true; }
+    if (t.pointsEarned !== undefined) {
+      // An earlier build stored one score per task; turn it into a percentage for each assignee.
+      if (t.pointsEarned != null && t.points > 0) {
+        const pct = Math.min(100, Math.round((t.pointsEarned / t.points) * 1000) / 10);
+        (t.assigneeIds || []).forEach(id => { t.scores[id] = pct; });
+      }
+      delete t.pointsEarned;
+      changed = true;
+    }
     if (t.completedAt === undefined) {
       t.completedAt = t.status === "done" ? t.createdAt : null;
       changed = true;

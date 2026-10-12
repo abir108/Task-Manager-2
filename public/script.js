@@ -721,7 +721,7 @@ let profileKpiProjects = [];
 function renderProfileKpi() {
   const range = profileKpiFilter.getRange();
   document.getElementById("profile-kpi").innerHTML =
-    kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label());
+    kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label(), me.id);
 }
 
 async function renderProfilePage() {
@@ -769,9 +769,9 @@ async function renderProfilePage() {
     : "—";
   document.getElementById("ph-projects").textContent = projectIds.size;
   document.getElementById("ph-open").textContent = open;
-  const lifetimePoints = computeKpi(assigned);
-  document.getElementById("ph-points").textContent = lifetimePoints.pointsScoredMax
-    ? `${lifetimePoints.pointsEarned} / ${lifetimePoints.pointsScoredMax}`
+  const lifetimePoints = computeKpi(assigned, me.id);
+  document.getElementById("ph-points").textContent = lifetimePoints.pointsTasks
+    ? `${lifetimePoints.pointsEarned} pts · ${taskWord(lifetimePoints.pointsTasks)}`
     : "—";
   profileKpiTasks = assigned;
   profileKpiProjects = activeProjects;
@@ -2052,19 +2052,27 @@ function buildGroupList(group, topTasks, groupTasks, project) {
   return wrap;
 }
 
-/* Small chip showing a task's points: "10 pts" while open, "★ 8/10" once an admin has scored it. */
+/* A member's score on one task: the admin gives a percentage of the task's total points.
+   Returns { pct, pts } or null when the task has no total or that member has not been scored. */
+function memberScore(task, memberId) {
+  const pct = task.scores ? task.scores[memberId] : undefined;
+  if (pct === undefined || pct === null || task.points == null) return null;
+  return { pct, pts: Math.round(task.points * pct) / 100 };
+}
+
+/* Small chip with a task's total points. A member sees "★ 8/10" once they have been scored. */
 function pointsText(task) {
   if (task.points == null) return "";
-  if (task.status === "done" && task.pointsEarned != null) return `★ ${task.pointsEarned}/${task.points}`;
-  return `${task.points} pts`;
+  const own = !isAdmin() && me && task.status === "done" ? memberScore(task, me.id) : null;
+  return own ? `★ ${own.pts}/${task.points}` : `${task.points} pts`;
 }
 function makePointsBadge(task) {
   const text = pointsText(task);
   if (!text) return null;
   const badge = document.createElement("span");
-  const scored = task.status === "done" && task.pointsEarned != null;
+  const scored = text.startsWith("★");
   badge.className = "pts-badge" + (scored ? " scored" : "");
-  badge.title = scored ? `Scored ${task.pointsEarned} of ${task.points} points` : `Worth ${task.points} points`;
+  badge.title = scored ? "Your points on this task" : `${task.points} points in total`;
   badge.textContent = text;
   return badge;
 }
@@ -3208,22 +3216,32 @@ function openTaskDetailModal(task, group, project, groupTasks) {
   openModal("modal-task-detail");
 }
 
-/* Points: an admin sets what the task is worth and, once it is Done, how many points were earned.
-   Members only see the numbers. */
+/* Points: one total for the task, then a percentage for each assigned member (their points are
+   total x percentage). Percentages can be given once the task is Done. Members see only their own row. */
 function fillTdPoints(task, editable) {
-  const worth = document.getElementById("td-points");
-  const earned = document.getElementById("td-points-earned");
-  const hint = document.getElementById("td-points-hint");
-  worth.value = task.points == null ? "" : task.points;
-  earned.value = task.pointsEarned == null ? "" : task.pointsEarned;
-  worth.disabled = !editable;
+  const total = document.getElementById("td-points");
+  total.value = task.points == null ? "" : task.points;
+  total.disabled = !editable;
+  const list = document.getElementById("td-score-list");
   const canScore = editable && task.status === "done" && task.points != null;
-  earned.disabled = !canScore;
-  earned.max = task.points == null ? 1000 : task.points;
-  if (!editable) hint.textContent = task.points == null ? "No points set for this task." : "";
-  else if (task.points == null) hint.textContent = "Set what this task is worth. Scoring opens once it is Done.";
-  else if (task.status !== "done") hint.textContent = "Scoring opens once the task is marked Done.";
-  else hint.textContent = "Enter the points earned (0 to " + task.points + "). They count in the member's profile and KPI.";
+  const rows = (task.assigneeIds || [])
+    .filter(id => editable || (me && id === me.id))
+    .map(id => ({ id, member: team.find(m => m.id === id) }))
+    .filter(r => r.member);
+  list.innerHTML = rows.map(({ id, member }) => {
+    const pct = task.scores ? task.scores[id] : undefined;
+    const score = memberScore(task, id);
+    return `
+      <div class="td-score-row" data-member="${id}"${editable && !canScore ? ' title="Percentages open once the task is Done and has total points"' : ""}>
+        <span class="td-score-who">${avatarHtml(member, "margin-left:0;width:22px;height:22px;font-size:10px;border:none")}<span>${escapeHtml(member.name)}</span></span>
+        <span class="td-score-pct"><input type="number" min="0" max="100" step="1" value="${pct == null ? "" : pct}" placeholder="0" ${canScore ? "" : "disabled"}><b>%</b></span>
+        <span class="td-score-pts">${score ? score.pts + " pts" : "—"}</span>
+      </div>`;
+  }).join("");
+  list.querySelectorAll(".td-score-row").forEach(row => {
+    const input = row.querySelector("input");
+    input.addEventListener("change", () => saveTdPoints({ scores: { [row.dataset.member]: input.value === "" ? null : Number(input.value) } }));
+  });
 }
 
 async function saveTdPoints(patch) {
@@ -3235,9 +3253,6 @@ async function saveTdPoints(patch) {
 }
 document.getElementById("td-points").addEventListener("change", e => {
   saveTdPoints({ points: e.target.value === "" ? null : Number(e.target.value) });
-});
-document.getElementById("td-points-earned").addEventListener("change", e => {
-  saveTdPoints({ pointsEarned: e.target.value === "" ? null : Number(e.target.value) });
 });
 
 function renderTdOwnerList(task, project, editable) {
@@ -3261,6 +3276,8 @@ function renderTdOwnerList(task, project, editable) {
       const ids = Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(c => c.value);
       try { await api("PATCH", `/api/tasks/${task.id}`, { assigneeIds: ids }); } catch (err) { alert(err.message); }
       await loadAndRenderBoard();
+      const fresh = tasks.find(t => t.id === task.id);
+      if (fresh) fillTdPoints(fresh, true);
     });
   });
 }
@@ -3787,22 +3804,26 @@ function kpiTaskOutcome(task) {
   return { kind: "open", label: "In progress" };
 }
 
-function computeKpi(tasks) {
+function computeKpi(tasks, memberId) {
   const k = { assigned: tasks.length, done: 0, ontime: 0, late: 0, nodeadline: 0, overdue: 0, open: 0, lateDays: 0,
-    pointsEarned: 0, pointsScoredMax: 0, pointsPending: 0, pointsOpen: 0 };
+    pointsEarned: 0, pointsScoredMax: 0, pointsTasks: 0, pointsPending: 0, pointsOpen: 0 };
   tasks.forEach(t => {
     const o = kpiTaskOutcome(t);
     k[o.kind]++;
     if (t.status === "done") k.done++;
     if (o.kind === "late") k.lateDays += o.days;
-    // Points count only once the task is Done and an admin has scored it.
-    if (t.points != null) {
+    // Points count only once the task is Done and the admin has given this member a percentage.
+    if (t.points != null && memberId) {
       if (t.status !== "done") k.pointsOpen += t.points;
-      else if (t.pointsEarned != null) { k.pointsEarned += t.pointsEarned; k.pointsScoredMax += t.points; }
-      else k.pointsPending++;
+      else {
+        const sc = memberScore(t, memberId);
+        if (sc) { k.pointsEarned += sc.pts; k.pointsScoredMax += t.points; k.pointsTasks++; }
+        else k.pointsPending++;
+      }
     }
   });
-  k.pointsEarned = Math.round(k.pointsEarned * 2) / 2;
+  k.pointsEarned = Math.round(k.pointsEarned * 100) / 100;
+  // KPI average: points earned out of the points that were on offer in the scored tasks
   k.pointsRate = k.pointsScoredMax ? Math.round((k.pointsEarned / k.pointsScoredMax) * 100) : null;
   k.completion = k.assigned ? Math.round((k.done / k.assigned) * 100) : 0;
   const timed = k.ontime + k.late;
@@ -3811,21 +3832,15 @@ function computeKpi(tasks) {
   return k;
 }
 
-function pointsSummary(k) {
-  const parts = [];
-  if (k.pointsRate !== null) parts.push(`${k.pointsRate}% of ${k.pointsScoredMax} possible`);
-  if (k.pointsPending) parts.push(`${k.pointsPending} awaiting score`);
-  if (!parts.length) parts.push(k.pointsOpen ? `${k.pointsOpen} pts still open` : "No scored tasks yet");
-  return parts.join(" · ");
-}
+const taskWord = n => `${n} task${n === 1 ? "" : "s"}`;
 
-function kpiHtml(memberTasks, projects, periodLabel) {
+function kpiHtml(memberTasks, projects, periodLabel, memberId) {
   if (!memberTasks.length) {
     return periodLabel && periodLabel !== "All time"
       ? `<p class="empty-hint">No tasks fall in ${escapeHtml(periodLabel)}.</p>`
       : `<p class="empty-hint">No tasks assigned yet. KPI appears once tasks are assigned.</p>`;
   }
-  const k = computeKpi(memberTasks);
+  const k = computeKpi(memberTasks, memberId);
   const tone = (value, good, mid) => value === null ? "" : value >= good ? "good" : value >= mid ? "warn" : "bad";
   const stats = `
     <div class="vitals-grid kpi-vitals">
@@ -3850,9 +3865,14 @@ function kpiHtml(memberTasks, projects, periodLabel) {
         <div class="vital-sub ${k.overdue ? "bad" : "good"}">${k.overdue ? "Not done, past due" : "All clear"}</div>
       </div>
       <div class="vital-card vital-points">
+        <div class="vital-title">KPI average</div>
+        <div class="vital-value">${k.pointsRate === null ? "—" : k.pointsRate}<small>${k.pointsRate === null ? "" : "%"}</small></div>
+        <div class="vital-sub ${tone(k.pointsRate, 80, 50)}">${k.pointsRate === null ? "No scored tasks yet" : `average over ${taskWord(k.pointsTasks)}`}</div>
+      </div>
+      <div class="vital-card vital-points">
         <div class="vital-title">Points earned</div>
         <div class="vital-value">${k.pointsEarned}<small>pts</small></div>
-        <div class="vital-sub ${tone(k.pointsRate, 80, 50)}">${pointsSummary(k)}</div>
+        <div class="vital-sub">${k.pointsTasks ? `from ${taskWord(k.pointsTasks)}` : "No points yet"}${k.pointsPending ? ` · ${k.pointsPending} awaiting score` : ""}</div>
       </div>
     </div>`;
 
@@ -3868,12 +3888,12 @@ function kpiHtml(memberTasks, projects, periodLabel) {
     .sort((a, b) => b[1].length - a[1].length)
     .map(([pid, tks]) => {
       const project = projects.find(p => p.id === pid);
-      const pk = computeKpi(tks);
+      const pk = computeKpi(tks, memberId);
       const chips = [`<span class="kp-chip">${pk.done}/${pk.assigned} done</span>`];
       if (pk.ontime) chips.push(`<span class="kpi-chip kpi-ontime">${pk.ontime} on time</span>`);
       if (pk.late) chips.push(`<span class="kpi-chip kpi-late">${pk.late} late</span>`);
       if (pk.overdue) chips.push(`<span class="kpi-chip kpi-overdue">${pk.overdue} overdue</span>`);
-      if (pk.pointsScoredMax) chips.push(`<span class="kpi-chip kpi-points">★ ${pk.pointsEarned}/${pk.pointsScoredMax} pts</span>`);
+      if (pk.pointsTasks) chips.push(`<span class="kpi-chip kpi-points">★ ${pk.pointsEarned} pts · ${taskWord(pk.pointsTasks)}${pk.pointsRate === null ? "" : " · " + pk.pointsRate + "%"}</span>`);
       const rows = tks
         .map(t => ({ t, o: kpiTaskOutcome(t) }))
         .sort((a, b) => rank[a.o.kind] - rank[b.o.kind])
@@ -3884,7 +3904,7 @@ function kpiHtml(memberTasks, projects, periodLabel) {
               <span class="rdr-sub">${t.dueDate ? "Due " + formatDate(t.dueDate) : "No due date"}${t.status === "done" && t.completedAt ? " · Done " + fmtTs(t.completedAt) : ""}</span>
             </div>
             <span class="kpi-chip kpi-${o.kind}">${escapeHtml(o.label)}</span>
-            ${pointsText(t) ? `<span class="kpi-chip kpi-points">${escapeHtml(pointsText(t))}</span>` : ""}
+            ${(() => { const sc = t.status === "done" ? memberScore(t, memberId) : null; return sc ? `<span class="kpi-chip kpi-points">★ ${sc.pts}/${t.points} pts · ${sc.pct}%</span>` : (t.points != null ? `<span class="kpi-chip kpi-open">${t.points} pts</span>` : ""); })()}
           </div>`).join("");
       return `
         <details class="kpi-project">
@@ -4130,7 +4150,7 @@ function renderReportTeam() {
 
   reportEmployeeRows = reportMembersCache.map(member => {
     const tasks = reportMemberTasks(member.id);
-    return { member, k: computeKpi(tasks), projectCount: new Set(tasks.map(t => t.projectId)).size };
+    return { member, k: computeKpi(tasks, member.id), projectCount: new Set(tasks.map(t => t.projectId)).size };
   }).sort((a, b) => b.k.assigned - a.k.assigned);
 
   const body = document.getElementById("report-kpi-body");
@@ -4138,7 +4158,7 @@ function renderReportTeam() {
     const member = reportMembersCache.find(m => m.id === memberId);
     body.innerHTML = `
       <div class="report-person kpi-member-head">${member ? avatarHtml(member) : ""}<span>${member ? escapeHtml(member.name) : ""}</span></div>
-      ${kpiHtml(reportMemberTasks(memberId), reportAllProjectsCache, label)}`;
+      ${kpiHtml(reportMemberTasks(memberId), reportAllProjectsCache, label, memberId)}`;
     return;
   }
 
@@ -4150,7 +4170,7 @@ function renderReportTeam() {
     <div class="report-table-wrap">
       <table class="report-table kpi-compare-table">
         <thead>
-          <tr><th>Member</th><th>Assigned</th><th>Done</th><th>On time</th><th>Late</th><th>Overdue</th><th>Completion</th><th>On-time rate</th><th>Points</th></tr>
+          <tr><th>Member</th><th>Assigned</th><th>Done</th><th>On time</th><th>Late</th><th>Overdue</th><th>Completion</th><th>On-time rate</th><th>KPI average</th><th>Points</th></tr>
         </thead>
         <tbody>
           ${reportEmployeeRows.map(r => `
@@ -4163,7 +4183,8 @@ function renderReportTeam() {
               <td class="kpi-bad-text">${r.k.overdue}</td>
               <td>${r.k.assigned ? r.k.completion + "%" : "—"}</td>
               <td>${r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%"}</td>
-              <td class="kpi-points-text">${r.k.pointsScoredMax || r.k.pointsEarned ? r.k.pointsEarned + `<span class="cell-sub">of ${r.k.pointsScoredMax}</span>` : "—"}</td>
+              <td class="kpi-points-text">${r.k.pointsRate === null ? "—" : r.k.pointsRate + "%"}</td>
+              <td class="kpi-points-text">${r.k.pointsTasks ? r.k.pointsEarned + `<span class="cell-sub">from ${taskWord(r.k.pointsTasks)}</span>` : "—"}</td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -4279,11 +4300,11 @@ document.getElementById("btn-export-employee-csv").addEventListener("click", () 
   const rows = reportEmployeeRows.map(r => [
     r.member.name, r.k.assigned, r.k.done, r.k.ontime, r.k.late, r.k.overdue,
     r.k.assigned ? r.k.completion + "%" : "—", r.k.onTimeRate === null ? "—" : r.k.onTimeRate + "%",
-    r.k.pointsEarned, r.k.pointsScoredMax
+    r.k.pointsRate === null ? "" : r.k.pointsRate + "%", r.k.pointsEarned, r.k.pointsTasks
   ]);
   downloadCsv(
     `team-kpi-${periodSlug()}.csv`,
-    ["Member", "Tasks Assigned", "Done", "Done On Time", "Done Late", "Overdue (not done)", "Completion", "On-time Rate", "Points Earned", "Points Possible (scored tasks)"],
+    ["Member", "Tasks Assigned", "Done", "Done On Time", "Done Late", "Overdue (not done)", "Completion", "On-time Rate", "KPI Average", "Points Earned", "Tasks Scored"],
     rows
   );
 });

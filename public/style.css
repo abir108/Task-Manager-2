@@ -3416,16 +3416,28 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
 .pts-badge.pts-card { margin: 6px 0 0; align-self: flex-start; }
 .kpi-chip.kpi-points { background: rgba(240, 190, 60, 0.16); color: #d9a21b; }
 .kpi-points-text { font-weight: 700; color: #d9a21b; }
-.kpi-vitals { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-@media (max-width: 1100px) { .kpi-vitals { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.kpi-vitals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 760px) { .kpi-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 480px) { .kpi-vitals { grid-template-columns: 1fr; } }
 .vital-points .vital-value { color: #d9a21b; }
-.td-points { display: flex; gap: 12px; }
-.td-points-item { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
-.td-points-item input { width: 100%; }
-.td-points-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-muted); min-height: 0; }
-.td-points-hint:empty { display: none; }
+.td-points-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; color: var(--text); }
+.td-points-total input { width: 110px; text-align: right; }
+.td-score-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.td-score-list:empty { display: none; }
+.td-score-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+}
+.td-score-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
+.td-score-who > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-score-pct { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-weight: 700; }
+.td-score-pct input { width: 64px; text-align: right; padding: 5px 8px; }
+.td-score-pts { min-width: 62px; text-align: right; font-size: 13px; font-weight: 700; color: #d9a21b; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
