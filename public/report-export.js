@@ -24,7 +24,8 @@ function reportScope() {
    signed-in person's own profile. */
 function teamReportSource() {
   const scope = reportScope();
-  const filter = scope.member ? document.getElementById("report-kpi-project-filter").value : "all";
+  const view = scope.member ? document.getElementById("report-kpi-project-filter").value : "kpi";
+  const filter = view === "kpi" ? "all" : view;
   return {
     member: scope.member,
     memberLabel: scope.memberLabel,
@@ -38,7 +39,8 @@ function teamReportSource() {
 
 function profileReportSource() {
   const range = profileKpiFilter ? profileKpiFilter.getRange() : null;
-  const filter = document.getElementById("profile-project-filter").value || "all";
+  const view = document.getElementById("profile-project-filter").value || "kpi";
+  const filter = view === "kpi" ? "all" : view;
   const periodLabel = profileKpiFilter ? profileKpiFilter.label() : "All time";
   return {
     member: me,

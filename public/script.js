@@ -738,8 +738,11 @@ let profileKpiProjects = [];
 
 function renderProfileKpi() {
   const range = profileKpiFilter.getRange();
+  const view = document.getElementById("profile-project-filter").value || "kpi";
   document.getElementById("profile-kpi").innerHTML =
-    kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label(), me.id, document.getElementById("profile-project-filter").value);
+    kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label(), me.id, view);
+  document.getElementById("profile-kpi-note").classList.toggle("u-hidden", view !== "kpi");
+  document.getElementById("profile-lower").classList.toggle("u-hidden", view !== "kpi");
 }
 
 async function renderProfilePage() {
@@ -795,7 +798,7 @@ async function renderProfilePage() {
   profileAllTasksCache = allTasks;
   profileKpiProjects = activeProjects;
   if (!profileKpiFilter) {
-    fillProjectFilterSelect("profile-project-filter");
+    fillProjectFilterSelect("profile-project-filter", KPI_VIEW_OPTIONS);
     document.getElementById("profile-project-filter").addEventListener("change", renderProfileKpi);
     profileKpiFilter = mountPeriodFilter(document.getElementById("profile-period-filter"), renderProfileKpi);
   }
@@ -4023,12 +4026,15 @@ const PROJECT_FILTER_OPTIONS = [
   ["late", "Finished late"],
   ["completed", "Completed projects"]
 ];
-const projectFilterLabel = key => (PROJECT_FILTER_OPTIONS.find(o => o[0] === key) || PROJECT_FILTER_OPTIONS[0])[1];
+/* On My Profile and the member view of Team KPI the same list also has "KPI", which shows only the KPI
+   cards; every other choice shows only that group of projects. */
+const KPI_VIEW_OPTIONS = [["kpi", "KPI"], ...PROJECT_FILTER_OPTIONS];
+const projectFilterLabel = key => (KPI_VIEW_OPTIONS.find(o => o[0] === key) || PROJECT_FILTER_OPTIONS[0])[1];
 
-function fillProjectFilterSelect(id) {
+function fillProjectFilterSelect(id, options = PROJECT_FILTER_OPTIONS) {
   const select = document.getElementById(id);
   if (select && !select.options.length) {
-    select.innerHTML = PROJECT_FILTER_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+    select.innerHTML = options.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
   }
 }
 
@@ -4062,7 +4068,8 @@ function filterTasksByProjectStatus(tasksList, projectsList, filter) {
 
 const taskWord = n => `${n} task${n === 1 ? "" : "s"}`;
 
-function kpiHtml(memberTasks, projects, periodLabel, memberId, projectFilter = "all") {
+function kpiHtml(memberTasks, projects, periodLabel, memberId, view = "kpi") {
+  const projectFilter = view === "kpi" ? "all" : view;
   if (memberTasks.length && projectFilter !== "all") {
     const filtered = filterTasksByProjectStatus(memberTasks, projects, projectFilter);
     if (!filtered.length) return `<p class="empty-hint">No ${projectFilterLabel(projectFilter).toLowerCase()} in ${escapeHtml(periodLabel)}.</p>`;
@@ -4156,7 +4163,8 @@ function kpiHtml(memberTasks, projects, periodLabel, memberId, projectFilter = "
         </details>`;
     }).join("");
 
-  return `${stats}<h3 class="kpi-sub-head">By project</h3><div class="list-head kp-head"><span>Project</span><span>Result</span><span>Progress</span></div>${projectsHtml}`;
+  if (view === "kpi") return stats;
+  return `<div class="list-head kp-head"><span>Project</span><span>Result</span><span>Progress</span></div>${projectsHtml}`;
 }
 
 /* ---------- Date-range filter (Report page + My Profile) ---------- */
@@ -4400,7 +4408,7 @@ function renderReportTeam() {
   const memberId = select.value;
   const label = reportPeriodFilter ? reportPeriodFilter.label() : "All time";
   const chosen = reportMembersCache.find(m => m.id === memberId);
-  fillProjectFilterSelect("report-kpi-project-filter");
+  fillProjectFilterSelect("report-kpi-project-filter", KPI_VIEW_OPTIONS);
   document.getElementById("report-kpi-project-field").classList.toggle("u-hidden", !memberId);
   document.getElementById("report-kpi-note").textContent =
     `${chosen ? chosen.name : "All members"} · ${label}. A task is counted in the period of its due date (or the day it was finished or created, if it has no due date).`;

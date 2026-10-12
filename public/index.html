@@ -277,10 +277,11 @@
           </div>
         </div>
         <div class="panel">
-          <p class="kpi-note">Each task counts 100% once you mark it Done. Finishing by its due date counts as on time. Tasks are counted in the period of their due date.</p>
+          <p class="kpi-note" id="profile-kpi-note">Each task counts 100% once you mark it Done. Finishing by its due date counts as on time. Tasks are counted in the period of their due date.</p>
           <div id="profile-kpi"></div>
         </div>
 
+        <div id="profile-lower">
         <h3 class="section-title">Overdue</h3>
         <div class="panel">
           <div class="list-head" id="profile-overdue-head"><span>Task</span><span>Due date</span></div>
@@ -293,6 +294,7 @@
           <div class="list-head" id="profile-upcoming-head"><span>Task</span><span>Due date</span></div>
           <div id="profile-upcoming-list" class="report-detail-list"></div>
           <p id="profile-upcoming-empty" class="empty-hint">Nothing due soon.</p>
+        </div>
         </div>
       </div>
     </section>
@@ -448,7 +450,7 @@
               <label class="rb-field"><span>Member</span>
                 <select id="report-kpi-member" class="kpi-member-select"></select>
               </label>
-              <label class="rb-field u-hidden" id="report-kpi-project-field"><span>Projects</span>
+              <label class="rb-field u-hidden" id="report-kpi-project-field"><span>Show</span>
                 <select id="report-kpi-project-filter" class="kpi-member-select"></select>
               </label>
               <div class="dl-wrap">
