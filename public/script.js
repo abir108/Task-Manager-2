@@ -215,6 +215,7 @@ async function afterLogin() {
     ? "Create and manage your projects"
     : "Projects you've been assigned to";
   document.getElementById("stat-members-card").style.display = isAdmin() ? "" : "none";
+  document.getElementById("stat-points-card").style.display = isAdmin() ? "none" : "";
   showApp();
   team = await api("GET", "/api/team-lite");
   categoryLabels = await api("GET", "/api/category-labels");
@@ -738,7 +739,7 @@ let profileKpiProjects = [];
 function renderProfileKpi() {
   const range = profileKpiFilter.getRange();
   document.getElementById("profile-kpi").innerHTML =
-    kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label(), me.id);
+    kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label(), me.id, document.getElementById("profile-project-filter").value);
 }
 
 async function renderProfilePage() {
@@ -794,6 +795,8 @@ async function renderProfilePage() {
   profileAllTasksCache = allTasks;
   profileKpiProjects = activeProjects;
   if (!profileKpiFilter) {
+    fillProjectFilterSelect("profile-project-filter");
+    document.getElementById("profile-project-filter").addEventListener("change", renderProfileKpi);
     profileKpiFilter = mountPeriodFilter(document.getElementById("profile-period-filter"), renderProfileKpi);
   }
   renderProfileKpi();
@@ -3744,6 +3747,11 @@ async function renderDashboard() {
     document.getElementById("stat-members").textContent = allMembers.length;
   }
   document.getElementById("stat-tasks").textContent = allTasks.length;
+  if (!isAdmin()) {
+    const mine = computeKpi(allTasks.filter(t => (t.assigneeIds || []).includes(me.id)), me.id);
+    document.getElementById("stat-points").textContent = mine.pointsEarned;
+    document.getElementById("stat-points-label").textContent = mine.pointsTasks ? `Points earned · ${taskWord(mine.pointsTasks)}` : "Points earned";
+  }
 
   const done = allTasks.filter(t => t.status === "done").length;
   const pct = allTasks.length ? Math.round((done / allTasks.length) * 100) : 0;
@@ -3760,6 +3768,15 @@ async function renderDashboard() {
   renderDashDeadlineSection("dash-upcoming-list", "dash-upcoming-empty", upcomingProjectsList);
   renderDashDeadlineSection("dash-overdue-list", "dash-overdue-empty", overdueProjectsList);
 
+  dashProgressData = { activeProjects, allTasks };
+  fillProjectFilterSelect("dash-project-filter");
+  renderDashProgress();
+}
+
+let dashProgressData = { activeProjects: [], allTasks: [] };
+function renderDashProgress() {
+  const { activeProjects, allTasks } = dashProgressData;
+  const filter = document.getElementById("dash-project-filter").value;
   const list = document.getElementById("progress-list");
   list.innerHTML = "";
 
@@ -3768,7 +3785,13 @@ async function renderDashboard() {
     return;
   }
 
-  activeProjects.forEach(project => {
+  const shown = activeProjects.filter(p => projectMatchesFilter(p, allTasks.filter(t => t.projectId === p.id), filter));
+  if (!shown.length) {
+    list.innerHTML = `<p class="empty-hint">No ${projectFilterLabel(filter).toLowerCase()} right now.</p>`;
+    return;
+  }
+
+  shown.forEach(project => {
     const tks = allTasks.filter(t => t.projectId === project.id);
     const doneCount = tks.filter(t => t.status === "done").length;
     const pctP = tks.length ? Math.round((doneCount / tks.length) * 100) : 0;
@@ -3785,6 +3808,8 @@ async function renderDashboard() {
     list.appendChild(item);
   });
 }
+
+document.getElementById("dash-project-filter").addEventListener("change", renderDashProgress);
 
 function renderCategoryBreakdown(projectsArr) {
   const container = document.getElementById("category-breakdown");
@@ -3988,9 +4013,61 @@ function computeKpi(tasks, memberId) {
   return k;
 }
 
+/* Project status filter used on the dashboard, My Profile and the member KPI view.
+   Overdue  = past its deadline and not completed, or has open tasks past their due date.
+   Finished late = has tasks that were finished after their due date. */
+const PROJECT_FILTER_OPTIONS = [
+  ["all", "All projects"],
+  ["running", "Running projects"],
+  ["overdue", "Overdue projects"],
+  ["late", "Finished late"],
+  ["completed", "Completed projects"]
+];
+const projectFilterLabel = key => (PROJECT_FILTER_OPTIONS.find(o => o[0] === key) || PROJECT_FILTER_OPTIONS[0])[1];
+
+function fillProjectFilterSelect(id) {
+  const select = document.getElementById(id);
+  if (select && !select.options.length) {
+    select.innerHTML = PROJECT_FILTER_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  }
+}
+
+function projectMatchesFilter(project, projectTasks, filter) {
+  if (!filter || filter === "all") return true;
+  const category = (project && project.category) || "running";
+  if (filter === "running") return category === "running";
+  if (filter === "completed") return category === "completed";
+  if (filter === "overdue") {
+    const pastDeadline = !!(project && project.deadline && category !== "completed" && daysUntil(project.deadline) < 0);
+    return pastDeadline || projectTasks.some(t => kpiTaskOutcome(t).kind === "overdue");
+  }
+  if (filter === "late") return projectTasks.some(t => kpiTaskOutcome(t).kind === "late");
+  return true;
+}
+
+/* Keeps only the tasks of projects that match the filter. */
+function filterTasksByProjectStatus(tasksList, projectsList, filter) {
+  if (!filter || filter === "all") return tasksList;
+  const byProject = new Map();
+  tasksList.forEach(t => {
+    if (!byProject.has(t.projectId)) byProject.set(t.projectId, []);
+    byProject.get(t.projectId).push(t);
+  });
+  const keep = [];
+  byProject.forEach((tks, projectId) => {
+    if (projectMatchesFilter(projectsList.find(p => p.id === projectId), tks, filter)) keep.push(...tks);
+  });
+  return keep;
+}
+
 const taskWord = n => `${n} task${n === 1 ? "" : "s"}`;
 
-function kpiHtml(memberTasks, projects, periodLabel, memberId) {
+function kpiHtml(memberTasks, projects, periodLabel, memberId, projectFilter = "all") {
+  if (memberTasks.length && projectFilter !== "all") {
+    const filtered = filterTasksByProjectStatus(memberTasks, projects, projectFilter);
+    if (!filtered.length) return `<p class="empty-hint">No ${projectFilterLabel(projectFilter).toLowerCase()} in ${escapeHtml(periodLabel)}.</p>`;
+    memberTasks = filtered;
+  }
   if (!memberTasks.length) {
     return periodLabel && periodLabel !== "All time"
       ? `<p class="empty-hint">No tasks fall in ${escapeHtml(periodLabel)}.</p>`
@@ -4084,6 +4161,7 @@ function kpiHtml(memberTasks, projects, periodLabel, memberId) {
 
 /* ---------- Date-range filter (Report page + My Profile) ---------- */
 const PERIOD_OPTIONS = [
+  ["last3", "Last 3 days"],
   ["all", "All time"],
   ["thisMonth", "This month"],
   ["lastMonth", "Last month"],
@@ -4107,6 +4185,7 @@ function mountPeriodFilter(container, onChange) {
   const today = new Date();
   monthIn.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
   yearIn.value = today.getFullYear();
+  typeSel.value = "last3";
 
   const monthRange = (y, m) => ({
     start: new Date(y, m, 1).getTime(),
@@ -4126,6 +4205,7 @@ function mountPeriodFilter(container, onChange) {
       const now = new Date();
       const y = now.getFullYear(), m = now.getMonth();
       switch (typeSel.value) {
+        case "last3": return { start: new Date(y, m, now.getDate() - 2).getTime(), end: new Date(y, m, now.getDate() + 1).getTime(), label: "Last 3 days" };
         case "thisMonth": return monthRange(y, m);
         case "lastMonth": return monthRange(y, m - 1);
         case "thisYear": return yearRange(y);
@@ -4320,6 +4400,8 @@ function renderReportTeam() {
   const memberId = select.value;
   const label = reportPeriodFilter ? reportPeriodFilter.label() : "All time";
   const chosen = reportMembersCache.find(m => m.id === memberId);
+  fillProjectFilterSelect("report-kpi-project-filter");
+  document.getElementById("report-kpi-project-field").classList.toggle("u-hidden", !memberId);
   document.getElementById("report-kpi-note").textContent =
     `${chosen ? chosen.name : "All members"} · ${label}. A task is counted in the period of its due date (or the day it was finished or created, if it has no due date).`;
 
@@ -4335,7 +4417,7 @@ function renderReportTeam() {
     const member = reportMembersCache.find(m => m.id === memberId);
     body.innerHTML = `
       <div class="report-person kpi-member-head">${member ? avatarHtml(member) : ""}<span>${member ? escapeHtml(member.name) : ""}</span></div>
-      ${kpiHtml(reportMemberTasks(memberId), reportAllProjectsCache, label, memberId)}`;
+      ${kpiHtml(reportMemberTasks(memberId), reportAllProjectsCache, label, memberId, document.getElementById("report-kpi-project-filter").value)}`;
     return;
   }
 
@@ -4492,6 +4574,7 @@ async function renderReportPage() {
 }
 
 document.getElementById("report-kpi-member").addEventListener("change", renderReportTeam);
+document.getElementById("report-kpi-project-filter").addEventListener("change", renderReportTeam);
 document.getElementById("report-project-scope").addEventListener("change", renderReportProjects);
 document.querySelectorAll("[data-report-tab]").forEach(btn => {
   btn.addEventListener("click", () => setReportTab(btn.dataset.reportTab));

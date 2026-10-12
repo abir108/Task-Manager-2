@@ -24,12 +24,13 @@ function reportScope() {
    signed-in person's own profile. */
 function teamReportSource() {
   const scope = reportScope();
+  const filter = scope.member ? document.getElementById("report-kpi-project-filter").value : "all";
   return {
     member: scope.member,
     memberLabel: scope.memberLabel,
-    periodLabel: scope.periodLabel,
+    periodLabel: filter === "all" ? scope.periodLabel : scope.periodLabel + " · " + projectFilterLabel(filter),
     members: scope.member ? [scope.member] : reportMembersCache.slice(),
-    tasksFor: memberId => reportMemberTasks(memberId),
+    tasksFor: memberId => filterTasksByProjectStatus(reportMemberTasks(memberId), reportAllProjectsCache, filter),
     allTasks: reportAllTasksCache,
     projects: reportAllProjectsCache
   };
@@ -37,12 +38,14 @@ function teamReportSource() {
 
 function profileReportSource() {
   const range = profileKpiFilter ? profileKpiFilter.getRange() : null;
+  const filter = document.getElementById("profile-project-filter").value || "all";
+  const periodLabel = profileKpiFilter ? profileKpiFilter.label() : "All time";
   return {
     member: me,
     memberLabel: me.name,
-    periodLabel: profileKpiFilter ? profileKpiFilter.label() : "All time",
+    periodLabel: filter === "all" ? periodLabel : periodLabel + " · " + projectFilterLabel(filter),
     members: [me],
-    tasksFor: () => tasksInPeriod(profileKpiTasks, range),
+    tasksFor: () => filterTasksByProjectStatus(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, filter),
     allTasks: profileAllTasksCache,
     projects: profileKpiProjects
   };
