@@ -112,7 +112,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /* An admin gives a task a total number of points (task.points). Once the task is Done the admin
    gives each assigned member a percentage of those points (task.scores[memberId], 0..100), so a
    member's points for the task are points x percent / 100. */
-const MAX_TASK_POINTS = 1000;
+const MAX_TASK_POINTS = 100000;
 function parsePoints(value) {
   if (value === null || value === "" || value === undefined) return { value: null };
   const n = Number(value);
