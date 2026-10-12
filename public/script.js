@@ -4069,7 +4069,7 @@ function filterTasksByProjectStatus(tasksList, projectsList, filter) {
 const taskWord = n => `${n} task${n === 1 ? "" : "s"}`;
 
 function kpiHtml(memberTasks, projects, periodLabel, memberId, view = "kpi") {
-  const projectFilter = view === "kpi" ? "all" : view;
+  const projectFilter = (view === "kpi" || view === "full") ? "all" : view;
   if (memberTasks.length && projectFilter !== "all") {
     const filtered = filterTasksByProjectStatus(memberTasks, projects, projectFilter);
     if (!filtered.length) return `<p class="empty-hint">No ${projectFilterLabel(projectFilter).toLowerCase()} in ${escapeHtml(periodLabel)}.</p>`;
@@ -4164,6 +4164,7 @@ function kpiHtml(memberTasks, projects, periodLabel, memberId, view = "kpi") {
     }).join("");
 
   if (view === "kpi") return stats;
+  if (view === "full") return `${stats}<h3 class="kpi-sub-head">By project</h3><div class="list-head kp-head"><span>Project</span><span>Result</span><span>Progress</span></div>${projectsHtml}`;
   return `<div class="list-head kp-head"><span>Project</span><span>Result</span><span>Progress</span></div>${projectsHtml}`;
 }
 
@@ -4280,6 +4281,17 @@ function relativeDays(days) {
 
 const PROJECT_STATUS_CHIP = { late: "overdue", risk: "late", ok: "ontime", done: "ontime", doneLate: "late" };
 
+/* The Projects tab's picker: which group of projects the table lists. */
+function reportScopeMatches(scope, r) {
+  switch (scope) {
+    case "running": return !r.isDone;
+    case "completed": return r.isDone;
+    case "overdue": return !r.isDone && (r.status === "late" || r.overdueTasks > 0);
+    case "late": return r.lateDone > 0 || r.status === "doneLate";
+    default: return true;   // "all"
+  }
+}
+
 function projectReportRows() {
   const range = reportPeriodFilter ? reportPeriodFilter.getRange() : null;
   const scope = document.getElementById("report-project-scope").value;
@@ -4332,7 +4344,7 @@ function projectReportRows() {
   });
 
   return rows
-    .filter(r => (scope === "all" || (scope === "completed") === r.isDone))
+    .filter(r => reportScopeMatches(scope, r))
     .filter(r => r.inPeriod)
     .sort((a, b) => {
       if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
@@ -4343,6 +4355,12 @@ function projectReportRows() {
 }
 
 function renderReportProjects() {
+  fillProjectFilterSelect("report-project-scope", KPI_VIEW_OPTIONS);
+  // KPI shows only the four summary cards; every other choice shows only that group of projects.
+  const kpiOnly = document.getElementById("report-project-scope").value === "kpi";
+  document.getElementById("report-alert-grid").classList.toggle("u-hidden", !kpiOnly);
+  document.getElementById("report-project-panel").classList.toggle("u-hidden", kpiOnly);
+  if (kpiOnly) return;
   reportProjectRows = projectReportRows();
   const body = document.getElementById("report-project-body");
   const empty = document.getElementById("report-project-empty");
@@ -4408,8 +4426,6 @@ function renderReportTeam() {
   const memberId = select.value;
   const label = reportPeriodFilter ? reportPeriodFilter.label() : "All time";
   const chosen = reportMembersCache.find(m => m.id === memberId);
-  fillProjectFilterSelect("report-kpi-project-filter", KPI_VIEW_OPTIONS);
-  document.getElementById("report-kpi-project-field").classList.toggle("u-hidden", !memberId);
   document.getElementById("report-kpi-note").textContent =
     `${chosen ? chosen.name : "All members"} · ${label}. A task is counted in the period of its due date (or the day it was finished or created, if it has no due date).`;
 
@@ -4425,7 +4441,7 @@ function renderReportTeam() {
     const member = reportMembersCache.find(m => m.id === memberId);
     body.innerHTML = `
       <div class="report-person kpi-member-head">${member ? avatarHtml(member) : ""}<span>${member ? escapeHtml(member.name) : ""}</span></div>
-      ${kpiHtml(reportMemberTasks(memberId), reportAllProjectsCache, label, memberId, document.getElementById("report-kpi-project-filter").value)}`;
+      ${kpiHtml(reportMemberTasks(memberId), reportAllProjectsCache, label, memberId, "full")}`;
     return;
   }
 
@@ -4582,7 +4598,6 @@ async function renderReportPage() {
 }
 
 document.getElementById("report-kpi-member").addEventListener("change", renderReportTeam);
-document.getElementById("report-kpi-project-filter").addEventListener("change", renderReportTeam);
 document.getElementById("report-project-scope").addEventListener("change", renderReportProjects);
 document.querySelectorAll("[data-report-tab]").forEach(btn => {
   btn.addEventListener("click", () => setReportTab(btn.dataset.reportTab));

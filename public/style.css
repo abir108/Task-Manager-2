@@ -3347,6 +3347,7 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
 .nf-msg.bad { color: var(--high); }
 
 /* ---------- Invitations, points ---------- */
+.report-view-row { display: flex; margin: 0 0 14px; }
 .td-score-head, .td-score-row { grid-template-columns: minmax(0, 1fr) 66px 66px 30px 50px !important; }
 .td-note-btn {
   width: 28px; height: 28px; padding: 0;

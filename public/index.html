@@ -388,6 +388,11 @@
 
       <!-- Tab 1: project-based report -->
       <div id="report-tab-projects">
+        <div class="report-view-row">
+          <label class="rb-field"><span>Show</span>
+            <select id="report-project-scope" class="kpi-member-select"></select>
+          </label>
+        </div>
         <div class="stat-grid" id="report-alert-grid">
           <div class="stat-card alert-card clickable" id="report-stat-overdue-tasks" title="Click to see the list">
             <div class="stat-value" id="report-overdue-tasks">0</div>
@@ -407,15 +412,10 @@
           </div>
         </div>
 
-        <div class="panel">
+        <div class="panel" id="report-project-panel">
           <div class="panel-head-row">
             <h2>Project report</h2>
             <div class="panel-tools">
-              <select id="report-project-scope" class="kpi-member-select">
-                <option value="running">Running projects</option>
-                <option value="completed">Completed projects</option>
-                <option value="all">All projects</option>
-              </select>
               <button class="btn btn-ghost btn-small" id="btn-export-project-csv">Export CSV</button>
             </div>
           </div>
@@ -449,9 +449,6 @@
             <div class="panel-tools">
               <label class="rb-field"><span>Member</span>
                 <select id="report-kpi-member" class="kpi-member-select"></select>
-              </label>
-              <label class="rb-field u-hidden" id="report-kpi-project-field"><span>Show</span>
-                <select id="report-kpi-project-filter" class="kpi-member-select"></select>
               </label>
               <div class="dl-wrap">
                 <button type="button" class="btn btn-primary btn-small" id="btn-report-download" aria-haspopup="true" aria-expanded="false">Download &#9662;</button>

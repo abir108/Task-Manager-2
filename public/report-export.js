@@ -24,14 +24,12 @@ function reportScope() {
    signed-in person's own profile. */
 function teamReportSource() {
   const scope = reportScope();
-  const view = scope.member ? document.getElementById("report-kpi-project-filter").value : "kpi";
-  const filter = view === "kpi" ? "all" : view;
   return {
     member: scope.member,
     memberLabel: scope.memberLabel,
-    periodLabel: filter === "all" ? scope.periodLabel : scope.periodLabel + " · " + projectFilterLabel(filter),
+    periodLabel: scope.periodLabel,
     members: scope.member ? [scope.member] : reportMembersCache.slice(),
-    tasksFor: memberId => filterTasksByProjectStatus(reportMemberTasks(memberId), reportAllProjectsCache, filter),
+    tasksFor: memberId => reportMemberTasks(memberId),
     allTasks: reportAllTasksCache,
     projects: reportAllProjectsCache
   };
