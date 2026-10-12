@@ -3347,6 +3347,18 @@ body.theme-dark .project-card .card-actions button[data-action="board"]:hover { 
 .nf-msg.bad { color: var(--high); }
 
 /* ---------- Invitations, points ---------- */
+/* Admins use the task pop-up only for points; status, dates and subitems are on the board itself. */
+body:not(.role-member) .td-member-only { display: none !important; }
+.td-points-prompt {
+  margin: 6px 0 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(240, 190, 60, 0.14);
+  border: 1px solid rgba(240, 190, 60, 0.35);
+  color: #d9a21b;
+  font-size: 13px;
+  font-weight: 600;
+}
 /* product name under the logo: larger and centred */
 .brand .org-name, .login-brand .org-name {
   align-self: center;

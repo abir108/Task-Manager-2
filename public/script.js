@@ -97,11 +97,23 @@ function showToast(message) {
 }
 
 /* ---------- API helper ---------- */
+/* When an admin marks a task Done and it has points and people on it, the board asks right away
+   who gets how many points: the task id waits here until the board has reloaded. */
+let pendingPointsPromptId = null;
+let pointsPromptTaskId = null;
+let pointsPromptFresh = false;
+
 async function api(method, url, body) {
   const opts = { method, credentials: "same-origin", headers: {} };
   if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
+  }
+  let doneTransitionId = null;
+  if (method === "PATCH" && body && body.status === "done" && typeof isAdmin === "function" && isAdmin()) {
+    const match = /^\/api\/tasks\/([^/?]+)$/.exec(url);
+    const before = match && typeof tasks !== "undefined" ? tasks.find(t => t.id === match[1]) : null;
+    if (before && before.status !== "done") doneTransitionId = match[1];
   }
   const res = await fetch(url, opts);
   if (res.status === 401 && url !== "/api/login") {
@@ -111,6 +123,9 @@ async function api(method, url, body) {
   let data = null;
   try { data = await res.json(); } catch (e) { /* no body */ }
   if (!res.ok) throw new Error((data && data.error) || "Request failed");
+  if (doneTransitionId && data && data.status === "done" && data.points != null && (data.assigneeIds || []).length) {
+    pendingPointsPromptId = doneTransitionId;
+  }
   return data;
 }
 
@@ -1383,6 +1398,18 @@ async function loadAndRenderBoard() {
     } else {
       closeModal("modal-task-detail");
       taskDetailContext = null;
+    }
+  }
+
+  if (pendingPointsPromptId) {
+    const promptId = pendingPointsPromptId;
+    pendingPointsPromptId = null;
+    const promptTask = tasks.find(t => t.id === promptId);
+    const promptGroup = promptTask && groups.find(g => g.id === promptTask.groupId);
+    if (promptTask && promptGroup) {
+      pointsPromptTaskId = promptTask.id;
+      pointsPromptFresh = true;
+      openTaskDetailModal(promptTask, promptGroup, project, tasks.filter(t => t.groupId === promptGroup.id));
     }
   }
 }
@@ -3208,6 +3235,11 @@ function openTaskDetailModal(task, group, project, groupTasks) {
   endInput.value = task.end || "";
   [dueInput, startInput, endInput].forEach(inp => inp.disabled = !editable);
 
+  // The "set the points" hint belongs to the pop-up that opens by itself after a task is marked Done.
+  // Opening a task by hand never shows it, and a refresh of an open pop-up keeps whatever it had.
+  if (pointsPromptFresh) pointsPromptFresh = false;
+  else if (!document.getElementById("modal-task-detail").classList.contains("open")) pointsPromptTaskId = null;
+  document.getElementById("td-points-prompt").classList.toggle("u-hidden", !(editable && pointsPromptTaskId === task.id));
   fillTdPoints(task, editable);
   renderTdOwnerList(task, project, editable);
   renderTdSubitemsList(task, group, groupTasks);

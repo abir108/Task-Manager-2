@@ -537,8 +537,9 @@
 <div class="modal-overlay" id="modal-task-detail">
   <div class="modal task-detail-modal">
     <input type="text" id="td-title" class="td-title-input" placeholder="Task title">
+    <p class="td-points-prompt u-hidden" id="td-points-prompt">This task is done. Set how many points each person gets.</p>
 
-    <div class="td-field-grid">
+    <div class="td-field-grid td-member-only">
       <div class="td-field">
         <label>Status</label>
         <select id="td-status"></select>
@@ -570,7 +571,7 @@
       <div id="td-owner-list" class="td-owner-list"></div>
     </div>
 
-    <div class="td-field">
+    <div class="td-field td-member-only">
       <label>Subitems</label>
       <div id="td-subitems-list" class="td-subitems-list"></div>
       <div class="td-add-subitem admin-only">
@@ -579,7 +580,7 @@
       </div>
     </div>
 
-    <button type="button" class="btn btn-ghost td-updates-btn" id="td-updates-btn">Updates</button>
+    <button type="button" class="btn btn-ghost td-updates-btn td-member-only" id="td-updates-btn">Updates</button>
 
     <div class="modal-actions td-actions">
       <button class="btn btn-ghost danger admin-only" id="td-delete-btn">Delete task</button>
