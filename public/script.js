@@ -739,10 +739,17 @@ let profileKpiProjects = [];
 function renderProfileKpi() {
   const range = profileKpiFilter.getRange();
   const view = document.getElementById("profile-project-filter").value || "kpi";
-  document.getElementById("profile-kpi").innerHTML =
-    kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label(), me.id, view);
+  const taskView = view === "overdueTasks" || view === "upcomingTasks";
+  // The heading follows the choice, and only the chosen thing is on the page.
+  document.getElementById("profile-kpi-title").textContent = view === "kpi" ? "My KPI" : projectFilterLabel(view);
+  document.getElementById("profile-kpi-panel").classList.toggle("u-hidden", taskView);
+  document.getElementById("profile-overdue-section").classList.toggle("u-hidden", view !== "overdueTasks");
+  document.getElementById("profile-upcoming-section").classList.toggle("u-hidden", view !== "upcomingTasks");
   document.getElementById("profile-kpi-note").classList.toggle("u-hidden", view !== "kpi");
-  document.getElementById("profile-lower").classList.toggle("u-hidden", view !== "kpi");
+  if (!taskView) {
+    document.getElementById("profile-kpi").innerHTML =
+      kpiHtml(tasksInPeriod(profileKpiTasks, range), profileKpiProjects, profileKpiFilter.label(), me.id, view);
+  }
 }
 
 async function renderProfilePage() {
@@ -798,7 +805,7 @@ async function renderProfilePage() {
   profileAllTasksCache = allTasks;
   profileKpiProjects = activeProjects;
   if (!profileKpiFilter) {
-    fillProjectFilterSelect("profile-project-filter", KPI_VIEW_OPTIONS);
+    fillProjectFilterSelect("profile-project-filter", PROFILE_VIEW_OPTIONS);
     document.getElementById("profile-project-filter").addEventListener("change", renderProfileKpi);
     profileKpiFilter = mountPeriodFilter(document.getElementById("profile-period-filter"), renderProfileKpi);
   }
@@ -3749,16 +3756,10 @@ async function renderDashboard() {
     const allMembers = await api("GET", "/api/members");
     document.getElementById("stat-members").textContent = allMembers.length;
   }
-  document.getElementById("stat-tasks").textContent = allTasks.length;
-  if (!isAdmin()) {
-    const mine = computeKpi(allTasks.filter(t => (t.assigneeIds || []).includes(me.id)), me.id);
-    document.getElementById("stat-points").textContent = mine.pointsEarned;
-    document.getElementById("stat-points-label").textContent = mine.pointsTasks ? `Points earned · ${taskWord(mine.pointsTasks)}` : "Points earned";
+  dashProgressData = { activeProjects, allTasks };
+  if (!dashPeriodFilter) {
+    dashPeriodFilter = mountPeriodFilter(document.getElementById("dash-period-filter"), renderDashStats);
   }
-
-  const done = allTasks.filter(t => t.status === "done").length;
-  const pct = allTasks.length ? Math.round((done / allTasks.length) * 100) : 0;
-  document.getElementById("stat-done").textContent = pct + "%";
 
   renderCategoryBreakdown(activeProjects);
 
@@ -3771,14 +3772,33 @@ async function renderDashboard() {
   renderDashDeadlineSection("dash-upcoming-list", "dash-upcoming-empty", upcomingProjectsList);
   renderDashDeadlineSection("dash-overdue-list", "dash-overdue-empty", overdueProjectsList);
 
-  dashProgressData = { activeProjects, allTasks };
   fillProjectFilterSelect("dash-project-filter");
+  renderDashStats();
+}
+
+/* The task numbers (total, completed, points, progress list) follow the date range; the project
+   counts, status breakdown and deadline lists describe the projects themselves and do not. */
+let dashProgressData = { activeProjects: [], allTasks: [] };
+let dashPeriodFilter = null;
+function renderDashStats() {
+  const { allTasks } = dashProgressData;
+  const periodTasks = tasksInPeriod(allTasks, dashPeriodFilter ? dashPeriodFilter.getRange() : null);
+  document.getElementById("stat-tasks").textContent = periodTasks.length;
+  const done = periodTasks.filter(t => t.status === "done").length;
+  document.getElementById("stat-done").textContent = (periodTasks.length ? Math.round((done / periodTasks.length) * 100) : 0) + "%";
+  if (!isAdmin()) {
+    const mine = computeKpi(periodTasks.filter(t => (t.assigneeIds || []).includes(me.id)), me.id);
+    document.getElementById("stat-points").textContent = mine.pointsEarned;
+    document.getElementById("stat-points-label").textContent = mine.pointsTasks ? `Points earned · ${taskWord(mine.pointsTasks)}` : "Points earned";
+  }
+  document.getElementById("dash-period-note").textContent = "Task numbers: " + (dashPeriodFilter ? dashPeriodFilter.label() : "All time");
   renderDashProgress();
 }
 
-let dashProgressData = { activeProjects: [], allTasks: [] };
 function renderDashProgress() {
-  const { activeProjects, allTasks } = dashProgressData;
+  const { activeProjects, allTasks: everyTask } = dashProgressData;
+  const range = dashPeriodFilter ? dashPeriodFilter.getRange() : null;
+  const allTasks = tasksInPeriod(everyTask, range);
   const filter = document.getElementById("dash-project-filter").value;
   const list = document.getElementById("progress-list");
   list.innerHTML = "";
@@ -3788,7 +3808,10 @@ function renderDashProgress() {
     return;
   }
 
-  const shown = activeProjects.filter(p => projectMatchesFilter(p, allTasks.filter(t => t.projectId === p.id), filter));
+  const shown = activeProjects.filter(p => {
+    const tks = allTasks.filter(t => t.projectId === p.id);
+    return (!range || tks.length) && projectMatchesFilter(p, tks, filter);
+  });
   if (!shown.length) {
     list.innerHTML = `<p class="empty-hint">No ${projectFilterLabel(filter).toLowerCase()} right now.</p>`;
     return;
@@ -4029,7 +4052,11 @@ const PROJECT_FILTER_OPTIONS = [
 /* On My Profile and the member view of Team KPI the same list also has "KPI", which shows only the KPI
    cards; every other choice shows only that group of projects. */
 const KPI_VIEW_OPTIONS = [["kpi", "KPI"], ...PROJECT_FILTER_OPTIONS];
-const projectFilterLabel = key => (KPI_VIEW_OPTIONS.find(o => o[0] === key) || PROJECT_FILTER_OPTIONS[0])[1];
+/* My Profile can also show just the overdue or just the upcoming tasks. */
+const PROFILE_VIEW_OPTIONS = [...KPI_VIEW_OPTIONS, ["overdueTasks", "Overdue tasks"], ["upcomingTasks", "Upcoming tasks"]];
+/* The Report's Projects tab lists projects only; it starts on the running ones. */
+const REPORT_SCOPE_OPTIONS = [["running", "Running projects"], ["overdue", "Overdue projects"], ["late", "Finished late"], ["completed", "Completed projects"], ["all", "All projects"]];
+const projectFilterLabel = key => (PROFILE_VIEW_OPTIONS.find(o => o[0] === key) || PROJECT_FILTER_OPTIONS[0])[1];
 
 function fillProjectFilterSelect(id, options = PROJECT_FILTER_OPTIONS) {
   const select = document.getElementById(id);
@@ -4170,6 +4197,7 @@ function kpiHtml(memberTasks, projects, periodLabel, memberId, view = "kpi") {
 
 /* ---------- Date-range filter (Report page + My Profile) ---------- */
 const PERIOD_OPTIONS = [
+  ["last30", "Last 30 days"],
   ["last3", "Last 3 days"],
   ["all", "All time"],
   ["thisMonth", "This month"],
@@ -4194,7 +4222,7 @@ function mountPeriodFilter(container, onChange) {
   const today = new Date();
   monthIn.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
   yearIn.value = today.getFullYear();
-  typeSel.value = "last3";
+  typeSel.value = "last30";
 
   const monthRange = (y, m) => ({
     start: new Date(y, m, 1).getTime(),
@@ -4214,6 +4242,7 @@ function mountPeriodFilter(container, onChange) {
       const now = new Date();
       const y = now.getFullYear(), m = now.getMonth();
       switch (typeSel.value) {
+        case "last30": return { start: new Date(y, m, now.getDate() - 29).getTime(), end: new Date(y, m, now.getDate() + 1).getTime(), label: "Last 30 days" };
         case "last3": return { start: new Date(y, m, now.getDate() - 2).getTime(), end: new Date(y, m, now.getDate() + 1).getTime(), label: "Last 3 days" };
         case "thisMonth": return monthRange(y, m);
         case "lastMonth": return monthRange(y, m - 1);
@@ -4293,6 +4322,7 @@ function reportScopeMatches(scope, r) {
 }
 
 function projectReportRows() {
+  fillProjectFilterSelect("report-project-scope", REPORT_SCOPE_OPTIONS);
   const range = reportPeriodFilter ? reportPeriodFilter.getRange() : null;
   const scope = document.getElementById("report-project-scope").value;
   const rank = { late: 0, risk: 1, ok: 2, doneLate: 3, done: 4 };
@@ -4355,12 +4385,7 @@ function projectReportRows() {
 }
 
 function renderReportProjects() {
-  fillProjectFilterSelect("report-project-scope", KPI_VIEW_OPTIONS);
-  // KPI shows only the four summary cards; every other choice shows only that group of projects.
-  const kpiOnly = document.getElementById("report-project-scope").value === "kpi";
-  document.getElementById("report-alert-grid").classList.toggle("u-hidden", !kpiOnly);
-  document.getElementById("report-project-panel").classList.toggle("u-hidden", kpiOnly);
-  if (kpiOnly) return;
+  fillProjectFilterSelect("report-project-scope", REPORT_SCOPE_OPTIONS);
   reportProjectRows = projectReportRows();
   const body = document.getElementById("report-project-body");
   const empty = document.getElementById("report-project-empty");

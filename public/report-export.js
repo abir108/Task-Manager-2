@@ -38,7 +38,7 @@ function teamReportSource() {
 function profileReportSource() {
   const range = profileKpiFilter ? profileKpiFilter.getRange() : null;
   const view = document.getElementById("profile-project-filter").value || "kpi";
-  const filter = view === "kpi" ? "all" : view;
+  const filter = ["running", "overdue", "late", "completed"].includes(view) ? view : "all";
   const periodLabel = profileKpiFilter ? profileKpiFilter.label() : "All time";
   return {
     member: me,

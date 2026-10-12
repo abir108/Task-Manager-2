@@ -121,7 +121,9 @@
         <div>
           <h1>Dashboard</h1>
           <p class="subtitle">Overview of all your projects and progress</p>
+          <p class="kpi-note" id="dash-period-note"></p>
         </div>
+        <div id="dash-period-filter"></div>
       </header>
 
       <div class="stat-grid">
@@ -261,7 +263,7 @@
         </div>
 
         <div class="section-head">
-          <h3 class="section-title">My KPI</h3>
+          <h3 class="section-title" id="profile-kpi-title">My KPI</h3>
           <div class="section-tools">
             <select id="profile-project-filter" class="kpi-member-select" aria-label="Filter projects"></select>
             <div id="profile-period-filter"></div>
@@ -276,20 +278,21 @@
             </div>
           </div>
         </div>
-        <div class="panel">
+        <div class="panel" id="profile-kpi-panel">
           <p class="kpi-note" id="profile-kpi-note">Each task counts 100% once you mark it Done. Finishing by its due date counts as on time. Tasks are counted in the period of their due date.</p>
           <div id="profile-kpi"></div>
         </div>
 
-        <div id="profile-lower">
-        <h3 class="section-title">Overdue</h3>
+        <div id="profile-overdue-section" class="u-hidden">
         <div class="panel">
           <div class="list-head" id="profile-overdue-head"><span>Task</span><span>Due date</span></div>
           <div id="profile-overdue-list" class="report-detail-list"></div>
           <p id="profile-overdue-empty" class="empty-hint">Nothing overdue. Nice work!</p>
         </div>
 
-        <h3 class="section-title">Upcoming</h3>
+        </div>
+
+        <div id="profile-upcoming-section" class="u-hidden">
         <div class="panel">
           <div class="list-head" id="profile-upcoming-head"><span>Task</span><span>Due date</span></div>
           <div id="profile-upcoming-list" class="report-detail-list"></div>
@@ -388,11 +391,6 @@
 
       <!-- Tab 1: project-based report -->
       <div id="report-tab-projects">
-        <div class="report-view-row">
-          <label class="rb-field"><span>Show</span>
-            <select id="report-project-scope" class="kpi-member-select"></select>
-          </label>
-        </div>
         <div class="stat-grid" id="report-alert-grid">
           <div class="stat-card alert-card clickable" id="report-stat-overdue-tasks" title="Click to see the list">
             <div class="stat-value" id="report-overdue-tasks">0</div>
@@ -416,6 +414,7 @@
           <div class="panel-head-row">
             <h2>Project report</h2>
             <div class="panel-tools">
+              <select id="report-project-scope" class="kpi-member-select" aria-label="Filter projects"></select>
               <button class="btn btn-ghost btn-small" id="btn-export-project-csv">Export CSV</button>
             </div>
           </div>
