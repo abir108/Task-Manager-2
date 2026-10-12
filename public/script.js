@@ -1641,6 +1641,9 @@ function showPopover(anchor, fillFn) {
   const rect = anchor.getBoundingClientRect();
   pop.style.top = (window.scrollY + rect.bottom + 4) + "px";
   pop.style.left = (window.scrollX + rect.left) + "px";
+  // keep it inside the window when the anchor is near the right edge
+  const overflow = pop.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
+  if (overflow > 0) pop.style.left = Math.max(window.scrollX + 8, window.scrollX + rect.left - overflow) + "px";
   pop.addEventListener("click", e => e.stopPropagation());
   return pop;
 }
@@ -1732,7 +1735,32 @@ function wireListCellActions(task, group, project, cells) {
   if (isAdmin()) {
     bindQuietAction(cells.ownerCell, el => openAssigneePopover(el, project, assigneeIds, ids => patchTaskAndReload(task, { assigneeIds: ids })));
     bindQuietAction(cells.dueCell, el => openDueDatePopover(el, task.dueDate, value => patchTaskAndReload(task, { dueDate: value })));
+    if (cells.pointsCell) bindQuietAction(cells.pointsCell, el => openPointsPopover(el, task));
   }
+}
+
+/* The Points column of the list: the task's total points. An admin clicks it to set the total;
+   who earned how much is entered in the task pop-up. */
+function makeListPointsCell(task) {
+  const cell = document.createElement("span");
+  cell.className = "kl-col-points" + (task.points == null ? " empty" : "");
+  cell.textContent = task.points == null ? "—" : String(task.points);
+  if (isAdmin()) cell.title = "Click to set the points for this task";
+  return cell;
+}
+
+function openPointsPopover(anchor, task) {
+  showPopover(anchor, (pop) => {
+    pop.classList.add("popover-timeline");
+    pop.innerHTML = `<label>Points for this task<input type="number" id="kc-points-input" min="0" max="100000" step="any" placeholder="e.g. 50" value="${task.points == null ? "" : task.points}"></label>`;
+    const input = pop.querySelector("#kc-points-input");
+    input.addEventListener("change", () => {
+      closeAllPopovers();
+      patchTaskAndReload(task, { points: input.value.trim() === "" ? null : Number(input.value) });
+    });
+    input.addEventListener("keydown", e => { if (e.key === "Enter") input.blur(); });
+    requestAnimationFrame(() => { input.focus(); input.select(); });
+  });
 }
 
 /* ---------- Status picker (member: pick only) ---------- */
@@ -2048,7 +2076,7 @@ function buildGroupList(group, topTasks, groupTasks, project) {
 
   const header = document.createElement("div");
   header.className = "kanban-list-header-row";
-  header.innerHTML = `<span class="kl-col-task">Task</span><span class="kl-col-notes"></span><span class="kl-col-status">Status</span><span class="kl-col-owner">Owner</span><span class="kl-col-due">Due date</span>` + (isAdmin() ? `<span class="kl-col-actions"></span>` : "");
+  header.innerHTML = `<span class="kl-col-task">Task</span><span class="kl-col-notes"></span><span class="kl-col-status">Status</span><span class="kl-col-owner">Owner</span><span class="kl-col-due">Due date</span><span class="kl-col-points">Points</span>` + (isAdmin() ? `<span class="kl-col-actions"></span>` : "");
   wrap.appendChild(header);
 
   const listEl = document.createElement("div");
@@ -2149,8 +2177,6 @@ function buildListRow(task, group, project, groupTasks) {
     subBadge.textContent = `${subitems.filter(s => s.status === "done").length}/${subitems.length}`;
     titleCell.appendChild(subBadge);
   }
-  const ptsBadge = makePointsBadge(task);
-  if (ptsBadge) titleCell.appendChild(ptsBadge);
   row.appendChild(titleCell);
 
   const toolsCell = document.createElement("span");
@@ -2193,7 +2219,10 @@ function buildListRow(task, group, project, groupTasks) {
   dueCell.textContent = task.dueDate ? formatDate(task.dueDate) : "—";
   row.appendChild(dueCell);
 
-  wireListCellActions(task, group, project, { statusCell, ownerCell, dueCell });
+  const pointsCell = makeListPointsCell(task);
+  row.appendChild(pointsCell);
+
+  wireListCellActions(task, group, project, { statusCell, ownerCell, dueCell, pointsCell });
 
   if (isAdmin()) {
     const actions = document.createElement("span");
@@ -2264,8 +2293,6 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
   subTitleText.className = "kl-title-text";
   subTitleText.textContent = sub.title;
   titleCell.appendChild(subTitleText);
-  const subPtsBadge = makePointsBadge(sub);
-  if (subPtsBadge) titleCell.appendChild(subPtsBadge);
   row.appendChild(titleCell);
 
   const toolsCell = document.createElement("span");
@@ -2291,7 +2318,10 @@ function buildSubListRow(sub, parentTask, group, project, groupTasks) {
   dueCell.textContent = sub.dueDate ? formatDate(sub.dueDate) : "—";
   row.appendChild(dueCell);
 
-  wireListCellActions(sub, group, project, { statusCell, ownerCell, dueCell });
+  const subPointsCell = makeListPointsCell(sub);
+  row.appendChild(subPointsCell);
+
+  wireListCellActions(sub, group, project, { statusCell, ownerCell, dueCell, pointsCell: subPointsCell });
 
   if (isAdmin()) {
     const delBtn = document.createElement("button");
