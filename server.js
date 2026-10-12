@@ -109,29 +109,59 @@ async function inviteResult(sendPromise) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/* An admin gives a task a total number of points (task.points). Once the task is Done the admin
-   gives each assigned member a percentage of those points (task.scores[memberId], 0..100), so a
-   member's points for the task are points x percent / 100. */
+/* Points work in two steps.
+   1. Distribution: the admin gives the task a total (task.points) and splits it between the assigned
+      members as points (task.shares[memberId]); the shares can add up to at most the total.
+      Until the admin edits a share, the total is split equally.
+   2. Earning: once the task is Done the admin enters the points each member actually earned
+      (task.earned[memberId], 0..share). The percentage (earned / share) is calculated, never typed. */
 const MAX_TASK_POINTS = 100000;
-function parsePoints(value) {
+function parseAmount(value, label) {
   if (value === null || value === "" || value === undefined) return { value: null };
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0 || n > MAX_TASK_POINTS) return { error: `Points must be a number from 0 to ${MAX_TASK_POINTS}` };
-  return { value: Math.round(n * 2) / 2 };
+  if (!Number.isFinite(n) || n < 0 || n > MAX_TASK_POINTS) return { error: `${label} must be a number from 0 to ${MAX_TASK_POINTS}` };
+  return { value: Math.round(n * 100) / 100 };
+}
+const parsePoints = value => parseAmount(value, "Points");
+const round2 = n => Math.round(n * 100) / 100;
+
+/* Keeps shares and earned points consistent after the total or the assignees change. */
+function redistribute(task, oldTotal) {
+  const ids = (task.assigneeIds || []).slice();
+  const shares = {};
+  if (task.points == null || ids.length === 0) {
+    task.shares = {};
+    task.earned = {};
+    task.sharesManual = false;
+    return;
+  }
+  const previous = task.shares || {};
+  if (!task.sharesManual) {
+    const each = Math.floor((task.points / ids.length) * 100) / 100;
+    ids.forEach((id, i) => { shares[id] = i === ids.length - 1 ? round2(task.points - each * (ids.length - 1)) : each; });
+  } else {
+    const factor = oldTotal > 0 && oldTotal !== task.points ? task.points / oldTotal : 1;
+    ids.forEach(id => { shares[id] = previous[id] === undefined ? 0 : round2(previous[id] * factor); });
+  }
+  task.shares = shares;
+  clampEarned(task);
 }
 
-function parsePercent(value) {
-  if (value === null || value === "" || value === undefined) return { value: null };
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0 || n > 100) return { error: "The percentage must be a number from 0 to 100" };
-  return { value: Math.round(n * 10) / 10 };
+function clampEarned(task) {
+  const earned = task.earned || {};
+  Object.keys(earned).forEach(id => {
+    const share = (task.shares || {})[id];
+    if (share === undefined) delete earned[id];
+    else if (earned[id] > share) earned[id] = share;
+  });
+  task.earned = earned;
 }
 
-/* Members only ever see their own score; admins see everyone's. */
+/* Members only ever see their own share and score; admins see everyone's. */
 function taskForViewer(task, member) {
-  if (member.role === "admin" || !task.scores) return task;
-  const own = task.scores[member.id];
-  return { ...task, scores: own === undefined ? {} : { [member.id]: own } };
+  if (member.role === "admin") return task;
+  const own = obj => (obj && obj[member.id] !== undefined ? { [member.id]: obj[member.id] } : {});
+  return { ...task, shares: own(task.shares), earned: own(task.earned) };
 }
 
 function projectVisible(project, member) {
@@ -745,11 +775,14 @@ app.post("/api/tasks", requireAdmin, async (req, res) => {
     start: "",
     end: "",
     points: pts.value,
-    scores: {},
+    shares: {},
+    earned: {},
+    sharesManual: false,
     completedAt: null,
     order: siblingCount,
     createdAt: Date.now()
   };
+  redistribute(task, null);
   store.tasks.push(task);
   await save();
   if (assigneeIds.length) {
@@ -784,6 +817,8 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
   const group = store.groups.find(g => g.id === task.groupId);
 
   let statusChanged = false;
+  let redistributeNeeded = false;
+  const oldTotal = task.points;
   const prevAssignees = new Set(task.assigneeIds || []);
   const prevStatus = task.status;
 
@@ -795,7 +830,7 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
     if (req.body.assigneeIds !== undefined && Array.isArray(req.body.assigneeIds)) {
       const validIds = new Set(store.members.map(m => m.id));
       task.assigneeIds = req.body.assigneeIds.filter(id => validIds.has(id));
-      Object.keys(task.scores || {}).forEach(id => { if (!task.assigneeIds.includes(id)) delete task.scores[id]; });
+      redistributeNeeded = true;
     }
     if (req.body.status !== undefined) {
       if (!group || !group.statuses.some(s => s.id === req.body.status)) {
@@ -808,24 +843,45 @@ app.patch("/api/tasks/:id", requireAuth, async (req, res) => {
       const pts = parsePoints(req.body.points);
       if (pts.error) return res.status(400).json({ error: pts.error });
       task.points = pts.value;
-      if (task.points === null) task.scores = {};   // no total, nothing to score against
+      redistributeNeeded = true;
     }
-    if (req.body.scores !== undefined) {
-      const incoming = req.body.scores;
-      if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return res.status(400).json({ error: "Invalid scores" });
+    if (redistributeNeeded) redistribute(task, oldTotal);
+
+    if (req.body.shares !== undefined) {
+      const incoming = req.body.shares;
+      if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return res.status(400).json({ error: "Invalid shares" });
+      if (task.points == null) return res.status(400).json({ error: "Set the total points for this task first" });
+      const next = { ...(task.shares || {}) };
+      for (const [memberId, raw] of Object.entries(incoming)) {
+        const amount = parseAmount(raw, "A share");
+        if (amount.error) return res.status(400).json({ error: amount.error });
+        if (!(task.assigneeIds || []).includes(memberId)) return res.status(400).json({ error: "That member is not assigned to this task" });
+        next[memberId] = amount.value === null ? 0 : amount.value;
+      }
+      const sum = round2(Object.values(next).reduce((a, b) => a + b, 0));
+      if (sum > task.points) return res.status(400).json({ error: `The shares add up to ${sum}, which is more than the task's ${task.points} points` });
+      task.shares = next;
+      task.sharesManual = true;
+      clampEarned(task);
+    }
+    if (req.body.earned !== undefined) {
+      const incoming = req.body.earned;
+      if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return res.status(400).json({ error: "Invalid points" });
       const updates = [];
       for (const [memberId, raw] of Object.entries(incoming)) {
-        const pct = parsePercent(raw);
-        if (pct.error) return res.status(400).json({ error: pct.error });
-        if (pct.value !== null) {
-          if (task.status !== "done") return res.status(400).json({ error: "Mark the task Done before giving points" });
+        const amount = parseAmount(raw, "Points earned");
+        if (amount.error) return res.status(400).json({ error: amount.error });
+        if (amount.value !== null) {
+          if (task.status !== "done") return res.status(400).json({ error: "Mark the task Done before entering earned points" });
           if (task.points == null) return res.status(400).json({ error: "Set the total points for this task first" });
           if (!(task.assigneeIds || []).includes(memberId)) return res.status(400).json({ error: "That member is not assigned to this task" });
+          const share = (task.shares || {})[memberId] || 0;
+          if (amount.value > share) return res.status(400).json({ error: `Their share of this task is ${share} points, so they cannot earn more than that` });
         }
-        updates.push([memberId, pct.value]);
+        updates.push([memberId, amount.value]);
       }
-      task.scores = task.scores || {};
-      updates.forEach(([memberId, value]) => { if (value === null) delete task.scores[memberId]; else task.scores[memberId] = value; });
+      task.earned = task.earned || {};
+      updates.forEach(([memberId, value]) => { if (value === null) delete task.earned[memberId]; else task.earned[memberId] = value; });
     }
   } else {
     const keys = Object.keys(req.body);

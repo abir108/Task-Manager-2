@@ -177,13 +177,26 @@ function load() {
       changed = true;
     }
     if (t.points === undefined) { t.points = null; changed = true; }
-    if (!t.scores || typeof t.scores !== "object" || Array.isArray(t.scores)) { t.scores = {}; changed = true; }
-    if (t.pointsEarned !== undefined) {
-      // An earlier build stored one score per task; turn it into a percentage for each assignee.
-      if (t.pointsEarned != null && t.points > 0) {
-        const pct = Math.min(100, Math.round((t.pointsEarned / t.points) * 1000) / 10);
-        (t.assigneeIds || []).forEach(id => { t.scores[id] = pct; });
-      }
+    const isObj = v => v && typeof v === "object" && !Array.isArray(v);
+    if (!isObj(t.shares)) { t.shares = {}; changed = true; }
+    if (!isObj(t.earned)) { t.earned = {}; changed = true; }
+    if (t.sharesManual === undefined) { t.sharesManual = false; changed = true; }
+    if (t.points != null && (t.assigneeIds || []).length && Object.keys(t.shares).length === 0) {
+      // Split the total equally between the assignees until an admin changes a share.
+      const ids = t.assigneeIds;
+      const each = Math.floor((t.points / ids.length) * 100) / 100;
+      ids.forEach((id, i) => { t.shares[id] = i === ids.length - 1 ? Math.round((t.points - each * (ids.length - 1)) * 100) / 100 : each; });
+      changed = true;
+    }
+    if (t.scores !== undefined || t.pointsEarned !== undefined) {
+      // Earlier builds stored percentages (scores) or one score per task; turn them into earned points.
+      (t.assigneeIds || []).forEach(id => {
+        const share = t.shares[id];
+        const pct = t.scores && t.scores[id] !== undefined ? t.scores[id]
+          : (t.pointsEarned != null && t.points > 0 ? (t.pointsEarned / t.points) * 100 : undefined);
+        if (share !== undefined && pct !== undefined) t.earned[id] = Math.min(share, Math.round(share * pct) / 100);
+      });
+      delete t.scores;
       delete t.pointsEarned;
       changed = true;
     }

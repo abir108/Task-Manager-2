@@ -2052,19 +2052,21 @@ function buildGroupList(group, topTasks, groupTasks, project) {
   return wrap;
 }
 
-/* A member's score on one task: the admin gives a percentage of the task's total points.
-   Returns { pct, pts } or null when the task has no total or that member has not been scored. */
+/* A member's points on one task. The admin splits the task's total into shares (task.shares) and,
+   once it is Done, enters what each member earned (task.earned). The percentage is calculated.
+   Returns { share, earned, pct } or null until the member has been given earned points. */
 function memberScore(task, memberId) {
-  const pct = task.scores ? task.scores[memberId] : undefined;
-  if (pct === undefined || pct === null || task.points == null) return null;
-  return { pct, pts: Math.round(task.points * pct) / 100 };
+  const share = task.shares ? task.shares[memberId] : undefined;
+  const earned = task.earned ? task.earned[memberId] : undefined;
+  if (task.points == null || share === undefined || earned === undefined) return null;
+  return { share, earned, pct: share > 0 ? Math.round((earned / share) * 1000) / 10 : null };
 }
 
 /* Small chip with a task's total points. A member sees "★ 8/10" once they have been scored. */
 function pointsText(task) {
   if (task.points == null) return "";
   const own = !isAdmin() && me && task.status === "done" ? memberScore(task, me.id) : null;
-  return own ? `★ ${own.pts}/${task.points}` : `${task.points} pts`;
+  return own ? `★ ${own.earned}/${own.share}` : `${task.points} pts`;
 }
 function makePointsBadge(task) {
   const text = pointsText(task);
@@ -2072,7 +2074,7 @@ function makePointsBadge(task) {
   const badge = document.createElement("span");
   const scored = text.startsWith("★");
   badge.className = "pts-badge" + (scored ? " scored" : "");
-  badge.title = scored ? "Your points on this task" : `${task.points} points in total`;
+  badge.title = scored ? "Points you earned out of your share" : `${task.points} points in total`;
   badge.textContent = text;
   return badge;
 }
@@ -3216,31 +3218,41 @@ function openTaskDetailModal(task, group, project, groupTasks) {
   openModal("modal-task-detail");
 }
 
-/* Points: one total for the task, then a percentage for each assigned member (their points are
-   total x percentage). Percentages can be given once the task is Done. Members see only their own row. */
+/* Points: one total for the task, then for each assigned member a share of it (the distribution) and,
+   once the task is Done, the points they earned. The percentage is calculated. Members see only their row. */
 function fillTdPoints(task, editable) {
   const total = document.getElementById("td-points");
   total.value = task.points == null ? "" : task.points;
   total.disabled = !editable;
   const list = document.getElementById("td-score-list");
-  const canScore = editable && task.status === "done" && task.points != null;
+  const hasTotal = task.points != null;
+  const canScore = editable && task.status === "done" && hasTotal;
   const rows = (task.assigneeIds || [])
     .filter(id => editable || (me && id === me.id))
     .map(id => ({ id, member: team.find(m => m.id === id) }))
     .filter(r => r.member);
-  list.innerHTML = rows.map(({ id, member }) => {
-    const pct = task.scores ? task.scores[id] : undefined;
+  if (!rows.length || !hasTotal) { list.innerHTML = ""; return; }
+
+  const num = v => (v === undefined || v === null ? "" : v);
+  const distributed = Math.round(Object.values(task.shares || {}).reduce((a, b) => a + b, 0) * 100) / 100;
+  const left = Math.round((task.points - distributed) * 100) / 100;
+  list.innerHTML = `
+    <div class="td-score-head"><span>Member</span><span>Share</span><span>Earned</span><span>%</span></div>` + rows.map(({ id, member }) => {
     const score = memberScore(task, id);
     return `
-      <div class="td-score-row" data-member="${id}"${editable && !canScore ? ' title="Percentages open once the task is Done and has total points"' : ""}>
+      <div class="td-score-row" data-member="${id}">
         <span class="td-score-who">${avatarHtml(member, "margin-left:0;width:22px;height:22px;font-size:10px;border:none")}<span>${escapeHtml(member.name)}</span></span>
-        <span class="td-score-pct"><input type="number" min="0" max="100" step="1" value="${pct == null ? "" : pct}" placeholder="0" ${canScore ? "" : "disabled"}><b>%</b></span>
-        <span class="td-score-pts">${score ? score.pts + " pts" : "—"}</span>
+        <input type="number" class="td-share-input" min="0" step="any" value="${num((task.shares || {})[id])}" ${editable ? "" : "disabled"} title="Points from the total given to this member">
+        <input type="number" class="td-earned-input" min="0" step="any" value="${num((task.earned || {})[id])}" placeholder="0" ${canScore ? "" : "disabled"} title="${canScore ? "Points this member actually earned" : "Opens once the task is Done"}">
+        <span class="td-score-pct">${score && score.pct !== null ? score.pct + "%" : "—"}</span>
       </div>`;
-  }).join("");
+  }).join("") + (editable && left !== 0 ? `<div class="td-score-left">${left > 0 ? "Not yet given out" : "Over by"}: ${Math.abs(left)} pts</div>` : "");
+
   list.querySelectorAll(".td-score-row").forEach(row => {
-    const input = row.querySelector("input");
-    input.addEventListener("change", () => saveTdPoints({ scores: { [row.dataset.member]: input.value === "" ? null : Number(input.value) } }));
+    const memberId = row.dataset.member;
+    const val = el => (el.value === "" ? null : Number(el.value));
+    row.querySelector(".td-share-input").addEventListener("change", e => saveTdPoints({ shares: { [memberId]: val(e.target) } }));
+    row.querySelector(".td-earned-input").addEventListener("change", e => saveTdPoints({ earned: { [memberId]: val(e.target) } }));
   });
 }
 
@@ -3817,7 +3829,7 @@ function computeKpi(tasks, memberId) {
       if (t.status !== "done") k.pointsOpen += t.points;
       else {
         const sc = memberScore(t, memberId);
-        if (sc) { k.pointsEarned += sc.pts; k.pointsScoredMax += t.points; k.pointsTasks++; }
+        if (sc) { k.pointsEarned += sc.earned; k.pointsScoredMax += sc.share; k.pointsTasks++; }
         else k.pointsPending++;
       }
     }
@@ -3904,7 +3916,7 @@ function kpiHtml(memberTasks, projects, periodLabel, memberId) {
               <span class="rdr-sub">${t.dueDate ? "Due " + formatDate(t.dueDate) : "No due date"}${t.status === "done" && t.completedAt ? " · Done " + fmtTs(t.completedAt) : ""}</span>
             </div>
             <span class="kpi-chip kpi-${o.kind}">${escapeHtml(o.label)}</span>
-            ${(() => { const sc = t.status === "done" ? memberScore(t, memberId) : null; return sc ? `<span class="kpi-chip kpi-points">★ ${sc.pts}/${t.points} pts · ${sc.pct}%</span>` : (t.points != null ? `<span class="kpi-chip kpi-open">${t.points} pts</span>` : ""); })()}
+            ${(() => { const sc = t.status === "done" ? memberScore(t, memberId) : null; return sc ? `<span class="kpi-chip kpi-points">★ ${sc.earned}/${sc.share} pts${sc.pct === null ? "" : " · " + sc.pct + "%"}</span>` : (t.points != null ? `<span class="kpi-chip kpi-open">${t.points} pts</span>` : ""); })()}
           </div>`).join("");
       return `
         <details class="kpi-project">
